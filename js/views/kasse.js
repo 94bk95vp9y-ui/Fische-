@@ -1,0 +1,189 @@
+import { store, commit, activeProducts, activeEvent, getProduct } from '../store.js';
+import { money, esc, plural } from '../util.js';
+import { icon } from '../icons.js';
+import { thumb, chips, empty } from '../components.js';
+import { PRODUCT_CATS } from '../model.js';
+import { unitPriceFor, sortedTiers } from '../model.js';
+import { openCheckout, openEntryForm, openQtyPad } from '../sheets.js';
+import { openProductEditor, openAiImport } from '../products.js';
+import { go } from '../nav.js';
+
+// Warenkorb überlebt das Schließen der App (z. B. kurz zu Kleinanzeigen wechseln)
+const CART_KEY = 'fk-cart';
+let cart = {};
+try { cart = JSON.parse(localStorage.getItem(CART_KEY) || '{}') || {}; } catch { cart = {}; }
+const saveCart = () => { try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch { /* egal */ } };
+let cat = 'all';
+let query = '';
+
+export function cartCount() {
+  return Object.values(cart).reduce((a, b) => a + b, 0);
+}
+
+function lines() {
+  const out = [];
+  for (const p of activeProducts()) {
+    const qty = cart[p.id] || 0;
+    if (qty > 0) {
+      const unit = unitPriceFor(p, qty);
+      out.push({ product: p, qty, unit, total: unit * qty });
+    }
+  }
+  return out;
+}
+
+export function kasseView(el, _params, { onCartChange } = {}) {
+  function cleanCart() {
+    const ids = new Set(activeProducts().map((p) => p.id));
+    let changed = false;
+    for (const id of Object.keys(cart)) if (!ids.has(id) || !(cart[id] > 0)) { delete cart[id]; changed = true; }
+    if (changed) saveCart();
+  }
+
+  function tileHtml(p) {
+    const qty = cart[p.id] || 0;
+    const tiers = sortedTiers(p.tiers);
+    const lowStock = p.stock != null && qty > p.stock;
+    return `<div class="tile ${qty ? 'on' : ''} ${lowStock ? 'over' : ''}" data-pid="${esc(p.id)}">
+      <button type="button" class="tile-main" data-add="${esc(p.id)}" aria-label="${esc(p.name)} hinzufügen">
+        ${thumb(p, 'tile-img')}
+        <span class="tile-qty" aria-hidden="true">${qty || ''}</span>
+        <span class="tile-name">${esc(p.name)}</span>
+        <span class="tile-price">${money(unitPriceFor(p, Math.max(1, qty)))}${tiers.length ? `<small>ab ${tiers[0].min}: ${money(tiers[0].price)}</small>` : ''}</span>
+        ${p.stock != null ? `<span class="tile-stock">${p.stock > 0 ? `${p.stock} da` : 'ausverkauft'}</span>` : ''}
+      </button>
+      <div class="tile-step">
+        <button type="button" data-dec="${esc(p.id)}" aria-label="eins weniger">${icon('minus')}</button>
+        <button type="button" class="tile-count" data-qty="${esc(p.id)}" aria-label="Menge eingeben">${qty}</button>
+        <button type="button" data-add="${esc(p.id)}" aria-label="eins mehr">${icon('plus')}</button>
+      </div>
+    </div>`;
+  }
+
+  function filtered() {
+    let list = activeProducts();
+    if (cat !== 'all') list = list.filter((p) => p.category === cat);
+    if (query) {
+      const q = query.toLowerCase();
+      list = list.filter((p) => p.name.toLowerCase().includes(q));
+    }
+    return list;
+  }
+
+  function render() {
+    cleanCart();
+    const all = activeProducts();
+    const ev = activeEvent();
+    const cats = [...new Set(all.map((p) => p.category))];
+    if (cat !== 'all' && !cats.includes(cat)) cat = 'all';
+    const list = filtered();
+
+    el.innerHTML = `
+      <header class="lt">
+        <div><h1>Kasse</h1></div>
+        <div class="lt-actions">${cartCount() ? `<button type="button" class="nav-btn" data-action="clear">Leeren</button>` : ''}</div>
+      </header>
+      <div class="content kasse">
+        ${ev ? `<div class="banner accent">${icon('stall')}<span><strong>Messe-Modus:</strong> ${esc(ev.name)} – Verkäufe werden der Messe zugeordnet.</span>
+          <button type="button" class="banner-link" data-action="end-messe">Beenden</button></div>` : ''}
+        ${all.length ? `
+          ${all.length > 8 ? `<label class="search">${icon('search')}<input type="search" placeholder="Artikel suchen" value="${esc(query)}" data-search autocomplete="off" enterkeyhint="search"></label>` : ''}
+          ${cats.length > 1 ? chips('cat', [{ value: 'all', label: 'Alle' }, ...cats.map((c) => ({ value: c, label: (PRODUCT_CATS[c] || PRODUCT_CATS.sonstiges).plural }))], cat, 'scroll') : ''}
+          <div class="tiles" data-tiles>${list.map(tileHtml).join('') || '<p class="card-note">Keine Treffer.</p>'}</div>
+          <p class="kasse-tip">Antippen = +1 · Zahl antippen = Menge eintippen</p>
+        ` : empty('Noch keine Artikel', 'Lege an, was du verkaufst – mit Stückpreis und Foto. Dann tippst du hier einfach an, was der Kunde mitnimmt.',
+          `<div class="btn-row center"><button type="button" class="btn primary" data-action="new-product">${icon('plus')}Artikel anlegen</button><button type="button" class="btn" data-action="ai-import">Aus Anzeige</button></div>`)}
+      </div>
+      <div class="kbar" data-kbar></div>`;
+    updateBar();
+  }
+
+  function updateTiles() {
+    el.querySelectorAll('.tile[data-pid]').forEach((t) => {
+      const p = getProduct(t.dataset.pid);
+      if (!p) return;
+      const qty = cart[p.id] || 0;
+      t.classList.toggle('on', qty > 0);
+      t.classList.toggle('over', p.stock != null && qty > p.stock);
+      t.querySelector('.tile-qty').textContent = qty || '';
+      t.querySelector('.tile-count').textContent = qty;
+      const price = t.querySelector('.tile-price');
+      const unit = unitPriceFor(p, Math.max(1, qty));
+      price.firstChild.nodeValue = money(unit);
+    });
+  }
+
+  function updateBar() {
+    const bar = el.querySelector('[data-kbar]');
+    if (!bar) return;
+    const ls = lines();
+    const n = ls.reduce((a, l) => a + l.qty, 0);
+    const total = ls.reduce((a, l) => a + l.total, 0);
+    if (!n) {
+      bar.innerHTML = `<div class="kbar-info"><span class="kbar-count">Nichts ausgewählt</span><span class="kbar-hint">Oder ohne Artikel:</span></div>
+        <button type="button" class="btn" data-action="manual">${icon('note')}Betrag eingeben</button>`;
+    } else {
+      bar.innerHTML = `<div class="kbar-info"><span class="kbar-count">${plural(n, 'Stück', 'Stück')}</span><span class="kbar-total">${money(total)}</span></div>
+        <button type="button" class="btn primary" data-action="checkout">Weiter ${icon('chevR')}</button>`;
+    }
+    const clear = el.querySelector('[data-action="clear"]');
+    const actions = el.querySelector('.lt-actions');
+    if (!n && clear) clear.remove();
+    if (n && !clear && actions) actions.innerHTML = `<button type="button" class="nav-btn" data-action="clear">Leeren</button>`;
+    onCartChange && onCartChange(n);
+  }
+
+  function setQty(pid, qty) {
+    if (qty > 0) cart[pid] = Math.min(9999, qty); else delete cart[pid];
+    saveCart();
+    updateTiles();
+    updateBar();
+  }
+
+  function bump(pid) {
+    const t = el.querySelector(`.tile[data-pid="${CSS.escape(pid)}"] .tile-qty`);
+    if (!t) return;
+    t.classList.remove('bump'); void t.offsetWidth; t.classList.add('bump');
+  }
+
+  el.onclick = (e) => {
+    const add = e.target.closest('[data-add]');
+    if (add) { const id = add.dataset.add; setQty(id, (cart[id] || 0) + 1); bump(id); return; }
+    const dec = e.target.closest('[data-dec]');
+    if (dec) { const id = dec.dataset.dec; setQty(id, (cart[id] || 0) - 1); return; }
+    const q = e.target.closest('[data-qty]');
+    if (q) { const p = getProduct(q.dataset.qty); if (p) openQtyPad(p, cart[p.id] || 0, (n) => setQty(p.id, n)); return; }
+    const c = e.target.closest('[data-chips="cat"] [data-value]');
+    if (c) { cat = c.dataset.value; render(); return; }
+    const a = e.target.closest('[data-action]');
+    if (!a) return;
+    switch (a.dataset.action) {
+      case 'clear': cart = {}; saveCart(); updateTiles(); updateBar(); break;
+      case 'manual': openEntryForm({ type: 'sale' }); break;
+      case 'new-product': openProductEditor(null); break;
+      case 'ai-import': openAiImport(); break;
+      case 'end-messe': commit((s) => { s.settings.activeEventId = null; }); break;
+      case 'checkout': {
+        const ls = lines();
+        if (!ls.length) return;
+        openCheckout(ls, (undo, restore) => {
+          if (restore) { for (const l of restore) cart[l.product.id] = l.qty; }
+          else cart = {};
+          saveCart();
+          render();
+        });
+        break;
+      }
+    }
+  };
+  el.oninput = (e) => {
+    if (e.target.matches('[data-search]')) {
+      query = e.target.value.trim();
+      const tiles = el.querySelector('[data-tiles]');
+      if (tiles) tiles.innerHTML = filtered().map(tileHtml).join('') || '<p class="card-note">Keine Treffer.</p>';
+    }
+  };
+  return { render };
+}
+
+export function goKasse() { go('kasse'); }
