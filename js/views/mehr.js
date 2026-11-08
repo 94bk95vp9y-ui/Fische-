@@ -7,7 +7,7 @@ import { openSheet, actionSheet, undoToast } from '../ui.js';
 import { exportBackup, importBackup, exportCsv, backupAgeDays } from '../backup.js';
 import { go } from '../nav.js';
 
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
 
 const item = (action, ic, label, value = '', cls = '') =>
   `<button type="button" class="row nav-row ${cls}" data-action="${action}">

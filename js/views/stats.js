@@ -1,7 +1,7 @@
-import { store, getMonth, yearTotals, monthKeys, productRanking, sortedEntries, getProduct } from '../store.js';
+import { store, getMonth, yearTotals, monthKeys, productRanking, sortedEntries, getProduct, getTotals } from '../store.js';
 import { esc, money, monthLabel, monthKey, currentMonthKey, pct } from '../util.js';
 import { icon } from '../icons.js';
-import { monthChart, bindChart, statTile, rankBars, navBar, entryRow, thumb } from '../components.js';
+import { monthChart, bindChart, statTile, rankBars, navBar, entryRow, thumb, sec } from '../components.js';
 import { CHANNELS, EXPENSE_CATS } from '../model.js';
 import { openEntryDetail } from '../sheets.js';
 import { go, back } from '../nav.js';
@@ -22,6 +22,18 @@ function topList(rows) {
     const p = r.pid ? getProduct(r.pid) : null;
     return `<div class="row static">${thumb(p || { category: 'sonstiges' }, 'sm')}<span class="rmain"><span class="rtitle">${i + 1}. ${esc(r.name)}</span><span class="rsub">${r.qty} Stück</span></span><span class="ramt">${money(r.revenue)}</span></div>`;
   }).join('')}</div>`;
+}
+
+/** Zusätzliche Kennzahlen als klar beschriftete Zeilen */
+function detailRows(t, { withDeposits = false } = {}) {
+  const row = (k, v, sub = '') => `<div class="kv"><span>${k}${sub ? `<small>${sub}</small>` : ''}</span><span>${v}</span></div>`;
+  return `<div class="kv-list">
+    ${row('Verkäufe', String(t.sales), t.lumpSales ? `plus ${t.lumpSales} Messe-Tagessumme${t.lumpSales === 1 ? '' : 'n'}` : '')}
+    ${row('Ø pro Verkauf', t.avgSale != null ? money(t.avgSale) : '–', t.lumpSales ? 'ohne Messe-Tagessummen' : '')}
+    ${t.items ? row('Verkaufte Tiere/Artikel', String(t.items)) : ''}
+    ${row('Privat entnommen', money(t.withdrawals))}
+    ${withDeposits ? row('Einlagen', money(t.deposits)) : ''}
+  </div>`;
 }
 
 // ------------------------------------------------------------------
@@ -48,6 +60,7 @@ export function statsView(el, params) {
     const firstKey = monthKeys().find((k) => k.startsWith(year + '-'));
     const visible = months.filter((m) => m.key <= cmk && firstKey && m.key >= firstKey);
     const top = productRanking((e) => e.date.startsWith(year + '-')).slice(0, 8);
+    const all = getTotals();
 
     el.innerHTML = `
       ${navBar('Statistik', 'Übersicht')}
@@ -65,13 +78,11 @@ export function statsView(el, params) {
             ${statTile('Umsatz', money(t.revenue))}
             ${statTile('Ausgaben', money(t.expenses))}
             ${statTile('Gewinn', money(t.profit), t.profit < 0 ? 'neg' : '')}
-            ${statTile('Entnommen', money(t.withdrawals))}
-            ${statTile('Verkäufe', String(t.sales))}
-            ${statTile('Ø Verkauf', t.sales ? money(Math.round(t.revenue / t.sales)) : '–')}
           </div>
           ${monthChart(months.map((m) => ({ key: m.key, revenue: m.revenue, expenses: m.expenses })), sel, { mini: true })}
           <p class="card-note">Säule antippen zeigt die Werte, nochmal antippen öffnet den Monat.</p>
         </section>
+        <div class="card list">${detailRows(t)}</div>
 
         <section class="month-block">
           <div class="month-head"><h2>Monate</h2></div>
@@ -102,6 +113,15 @@ export function statsView(el, params) {
           <div class="card-head"><h2>Meistverkauft ${esc(year)}</h2></div>
           ${topList(top)}
         </section>
+
+        ${sec('Seit Beginn', `<div class="card">
+            <div class="stats3">
+              ${statTile('Umsatz', money(all.revenue))}
+              ${statTile('Ausgaben', money(all.expenses))}
+              ${statTile('Gewinn', money(all.profit), all.profit < 0 ? 'neg' : '')}
+            </div>
+          </div>
+          <div class="card list">${detailRows(all, { withDeposits: true })}</div>`)}
       </div>`;
   }
   bindChart(el, (key) => go('monat/' + key));
@@ -131,11 +151,9 @@ export function monthView(el, params) {
             ${statTile('Umsatz', money(m.revenue))}
             ${statTile('Ausgaben', money(m.expenses))}
             ${statTile('Gewinn', money(m.profit), m.profit < 0 ? 'neg' : '')}
-            ${statTile('Entnommen', money(m.withdrawals))}
-            ${statTile('Verkäufe', String(m.sales))}
-            ${statTile('Ø Verkauf', m.sales ? money(Math.round(m.revenue / m.sales)) : '–')}
           </div>
         </section>
+        <div class="card list">${detailRows(m)}</div>
         ${m.revenue ? `<section class="card"><div class="card-head"><h2>Verkaufsweg</h2></div>${channelBars(m.byChannel, m.revenue)}</section>` : ''}
         ${top.length ? `<section class="card"><div class="card-head"><h2>Meistverkauft</h2></div>${topList(top)}</section>` : ''}
         <section class="month-block">

@@ -79,6 +79,29 @@ export function bindChoice(root, selector, onPick) {
   });
 }
 
+/** Abschnitt mit kleiner Überschrift – immer gleicher Abstand zwischen Überschrift und Inhalt */
+export function sec(label, inner, attrs = '') {
+  return `<div class="sec" ${attrs}>${label ? `<div class="sec-label">${label}</div>` : ''}${inner}</div>`;
+}
+
+/** Antippbare Zeile für Beträge/Mengen (öffnet den Ziffernblock statt der iOS-Tastatur) */
+export function amountRow(key, label, value, { integer = false, placeholder = 'antippen', ic = '', unit = 'Stück' } = {}) {
+  return `<button type="button" class="field row-field amt-row" data-amt="${esc(key)}">
+    <span class="field-label">${ic ? icon(ic) : ''}${esc(label)}</span>
+    <span class="amt-val ${value == null ? 'empty' : ''}">${esc(amountText(value, { integer, placeholder, unit }))}</span>
+  </button>`;
+}
+export function amountText(value, { integer = false, placeholder = 'antippen', unit = 'Stück' } = {}) {
+  if (value == null) return placeholder;
+  return integer ? `${value} ${unit}`.trim() : money(value);
+}
+export function setAmountRow(root, key, value, opts = {}) {
+  const el = root.querySelector(`[data-amt="${CSS.escape(key)}"] .amt-val`);
+  if (!el) return;
+  el.textContent = amountText(value, opts);
+  el.classList.toggle('empty', value == null);
+}
+
 export function empty(title, text, actionsHtml = '') {
   return `<div class="empty"><strong>${esc(title)}</strong><p>${esc(text)}</p>${actionsHtml}</div>`;
 }

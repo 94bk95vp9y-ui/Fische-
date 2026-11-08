@@ -2,7 +2,7 @@
 import { load, subscribe, store } from './store.js';
 import { icon } from './icons.js';
 import { currentPath, go, resetDepth } from './nav.js';
-import { toast } from './ui.js';
+import { toast, isLocked } from './ui.js';
 import { homeView } from './views/home.js';
 import { kasseView, cartCount } from './views/kasse.js';
 import { verlaufView } from './views/verlauf.js';
@@ -89,23 +89,26 @@ function rerender() {
 
 // Kompakten Titel in Unterseiten einblenden, sobald der große Titel weggescrollt ist
 function onScroll() {
+  if (isLocked()) return; // Hintergrund ist fixiert, scrollY ist dann 0
   document.body.classList.toggle('scrolled', window.scrollY > 44);
 }
 
-// iOS: Tastatur verkleinert nur den sichtbaren Bereich. Offene Fenster passen sich daran an.
+// iOS: Die Tastatur verdeckt den unteren Bereich. Offene Fenster werden unten gekürzt,
+// ihr oberer Rand bleibt aber stehen – so springt beim Antippen nichts hin und her.
 function trackKeyboard() {
   const vv = window.visualViewport;
   if (!vv) return;
   const root = document.documentElement;
+  let last = -1;
   const update = () => {
     // Beim Hineinzoomen (Pinch) nicht als Tastatur missverstehen
     const kb = vv.scale > 1.01 ? 0 : Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    if (kb === last) return;
+    last = kb;
     root.style.setProperty('--kb', kb + 'px');
-    root.style.setProperty('--vv-top', Math.max(0, Math.round(vv.offsetTop)) + 'px');
     root.classList.toggle('kb-open', kb > 120);
   };
   vv.addEventListener('resize', update);
-  vv.addEventListener('scroll', update);
   update();
 }
 

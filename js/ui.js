@@ -6,16 +6,30 @@ const layer = () => document.getElementById('layer');
 let openCount = 0;
 let zTop = 100;
 
+// Hintergrund festhalten, solange ein Fenster offen ist. position:fixed verhindert,
+// dass iOS beim Antippen eines Textfelds die Seite darunter verschiebt.
+let savedY = 0;
 function lock() {
-  if (openCount++ === 0) document.documentElement.classList.add('locked');
+  if (openCount++ === 0) {
+    savedY = window.scrollY;
+    const b = document.body.style;
+    b.position = 'fixed'; b.top = `-${savedY}px`; b.left = '0'; b.right = '0'; b.width = '100%';
+    document.documentElement.classList.add('locked');
+  }
   // Ein noch sichtbarer Toast würde sonst Knöpfe des neuen Fensters verdecken
   const t = document.getElementById('toast');
   if (t) t.classList.remove('show');
 }
 function unlock() {
   openCount = Math.max(0, openCount - 1);
-  if (openCount === 0) document.documentElement.classList.remove('locked');
+  if (openCount === 0) {
+    const b = document.body.style;
+    b.position = ''; b.top = ''; b.left = ''; b.right = ''; b.width = '';
+    document.documentElement.classList.remove('locked');
+    window.scrollTo(0, savedY);
+  }
 }
+export const isLocked = () => openCount > 0;
 
 /**
  * Modales Blatt von unten (wie bei iOS).
@@ -268,6 +282,53 @@ export function createKeypad({ integer = false, initial = null, onChange = () =>
     display() { return formatBuffer(buf); },
   };
   return api;
+}
+
+/**
+ * Betrag oder Stückzahl über den eigenen Ziffernblock eingeben – ohne iOS-Tastatur.
+ * opts: { title, label, initial, integer, unit, hint(value), quick:[{label,value}], allowEmpty, confirm, onSet(value) }
+ */
+export function openAmountPad(opts) {
+  const integer = !!opts.integer;
+  const unit = integer ? (opts.unit ?? 'Stück') : '€';
+  const sheet = openSheet({
+    title: opts.title || '',
+    right: opts.confirm || 'Fertig',
+    cls: 'sheet-keypad sheet-short',
+    foot: '',
+    content: `
+      <div class="amount-display" data-display>
+        ${opts.label ? `<span class="amount-label">${esc(opts.label)}</span>` : ''}
+        <span class="amount-value"><span data-amt>0</span>${unit ? ' ' + esc(unit) : ''}</span>
+        <span class="amount-hint" data-hint></span>
+      </div>
+      ${opts.quick && opts.quick.length ? `<div class="chips center" data-quick>${opts.quick.map((q, i) =>
+        `<button type="button" class="chip" data-q="${i}">${esc(q.label)}</button>`).join('')}</div>` : ''}`,
+    onRight: () => {
+      const v = integer ? kp.getInt() : kp.getCents();
+      if (v === null && !opts.allowEmpty) {
+        const d = sheet.body.querySelector('[data-display]');
+        d.classList.remove('shake'); void d.offsetWidth; d.classList.add('shake');
+        return false;
+      }
+      opts.onSet(v);
+      return true;
+    },
+  });
+  const update = () => {
+    sheet.body.querySelector('[data-amt]').textContent = kp.display();
+    sheet.body.querySelector('[data-display]').classList.toggle('is-empty', !kp.buffer);
+    const h = opts.hint ? opts.hint(integer ? kp.getInt() : kp.getCents()) : '';
+    sheet.body.querySelector('[data-hint]').textContent = h || '';
+  };
+  const kp = createKeypad({ integer, initial: opts.initial ?? null, maxInt: integer ? 4 : 6, onChange: update });
+  sheet.foot.appendChild(kp.el);
+  sheet.body.addEventListener('click', (e) => {
+    const q = e.target.closest('[data-q]');
+    if (q) kp.set(opts.quick[+q.dataset.q].value);
+  });
+  update();
+  return sheet;
 }
 
 // ---------- Fotos ----------

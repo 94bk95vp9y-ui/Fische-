@@ -120,8 +120,8 @@ export function kasseView(el, _params, { onCartChange } = {}) {
     const n = ls.reduce((a, l) => a + l.qty, 0);
     const total = ls.reduce((a, l) => a + l.total, 0);
     if (!n) {
-      bar.innerHTML = `<div class="kbar-info"><span class="kbar-count">Nichts ausgewählt</span><span class="kbar-hint">Oder ohne Artikel:</span></div>
-        <button type="button" class="btn" data-action="manual">${icon('note')}Betrag eingeben</button>`;
+      bar.innerHTML = `<div class="kbar-info"><span class="kbar-count">Noch leer</span><span class="kbar-hint">Artikel antippen oder:</span></div>
+        <button type="button" class="btn" data-action="manual">${icon('note')}Nur Betrag</button>`;
     } else {
       bar.innerHTML = `<div class="kbar-info"><span class="kbar-count">${plural(n, 'Stück', 'Stück')}</span><span class="kbar-total">${money(total)}</span></div>
         <button type="button" class="btn primary" data-action="checkout">Weiter ${icon('chevR')}</button>`;

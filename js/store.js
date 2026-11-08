@@ -217,12 +217,16 @@ function stats() {
   return cache;
 }
 function blank() {
-  return { revenue: 0, expenses: 0, withdrawals: 0, deposits: 0, adjust: 0, sales: 0, items: 0, byChannel: { ka: 0, messe: 0, other: 0 }, byExpense: {} };
+  // sales = einzelne Verkäufe (Kunden); Messe-Tagessummen zählen extra (lumpSales),
+  // weil darin viele Kunden stecken – sonst wäre „Ø pro Verkauf“ verzerrt.
+  return { revenue: 0, expenses: 0, withdrawals: 0, deposits: 0, adjust: 0, sales: 0, salesRevenue: 0, lumpSales: 0, items: 0, byChannel: { ka: 0, messe: 0, other: 0 }, byExpense: {} };
 }
 function add(m, e) {
   switch (e.type) {
     case 'sale':
-      m.revenue += e.amount; m.sales++;
+      m.revenue += e.amount;
+      if (e.channel === 'messe' && !(e.items && e.items.length)) m.lumpSales++;
+      else { m.sales++; m.salesRevenue += e.amount; }
       m.byChannel[e.channel || 'other'] = (m.byChannel[e.channel || 'other'] || 0) + e.amount;
       for (const i of e.items || []) m.items += i.qty;
       break;
@@ -240,7 +244,9 @@ export const getBalance = () => stats().balance;
 export const getTotals = () => withProfit(stats().totals);
 export const getMonth = (key) => withProfit(stats().months.get(key) || blank());
 export const monthKeys = () => [...stats().months.keys()].sort();
-function withProfit(m) { return { ...m, profit: m.revenue - m.expenses }; }
+function withProfit(m) {
+  return { ...m, profit: m.revenue - m.expenses, avgSale: m.sales ? Math.round(m.salesRevenue / m.sales) : null };
+}
 
 export function yearTotals(year) {
   const t = blank();
@@ -248,6 +254,7 @@ export function yearTotals(year) {
     if (!k.startsWith(year + '-')) continue;
     t.revenue += m.revenue; t.expenses += m.expenses; t.withdrawals += m.withdrawals;
     t.deposits += m.deposits; t.adjust += m.adjust; t.sales += m.sales; t.items += m.items;
+    t.salesRevenue += m.salesRevenue; t.lumpSales += m.lumpSales;
     for (const c in m.byChannel) t.byChannel[c] = (t.byChannel[c] || 0) + m.byChannel[c];
     for (const c in m.byExpense) t.byExpense[c] = (t.byExpense[c] || 0) + m.byExpense[c];
   }

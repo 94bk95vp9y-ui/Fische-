@@ -42,13 +42,29 @@ export function verlaufView(el) {
       </header>
       <div class="content">
         <label class="search">${icon('search')}<input type="search" placeholder="Suchen: Artikel, Notiz, Betrag …" value="${esc(query)}" data-search autocomplete="off" enterkeyhint="search"></label>
-        ${chips('filter', FILTERS, filter, 'scroll')}
+        <div class="contents" data-filters></div>
         <div data-list></div>
       </div>`;
+  }
+  // Nur Filter anzeigen, zu denen es auch Einträge gibt
+  function renderFilters() {
+    const es = store.state.entries;
+    const has = {
+      all: true,
+      sale: es.some((e) => e.type === 'sale'),
+      expense: es.some((e) => e.type === 'expense'),
+      withdrawal: es.some((e) => e.type === 'withdrawal'),
+      other: es.some((e) => e.type === 'deposit' || e.type === 'adjust'),
+      open: es.some((e) => e.status === 'open'),
+    };
+    if (!has[filter]) filter = 'all';
+    const list = FILTERS.filter((f) => has[f.value]);
+    el.querySelector('[data-filters]').innerHTML = list.length > 2 ? chips('filter', list, filter, 'scroll') : '';
   }
   function renderList() {
     const list = el.querySelector('[data-list]');
     if (!list) return;
+    renderFilters();
     const all = sortedEntries(store.state.entries.filter(matches));
     if (!store.state.entries.length) {
       list.innerHTML = empty('Noch keine Einträge', 'Verkäufe, Ausgaben und Entnahmen erscheinen hier – nach Monaten sortiert.',
@@ -64,7 +80,7 @@ export function verlaufView(el) {
       if (k !== cur) {
         if (cur) html += '</div></section>';
         const m = getMonth(k);
-        html += `<section class="month-block"><div class="month-head"><h2>${esc(monthLabel(k))}</h2>
+        html += `<section class="month-block"><div class="month-head stacked"><h2>${esc(monthLabel(k))}</h2>
           <span>Umsatz ${money(m.revenue)} · Ausgaben ${money(m.expenses)}</span></div><div class="card list">`;
         cur = k;
       }

@@ -1,9 +1,9 @@
 // Artikel anlegen/bearbeiten und KI-Import aus einer Anzeige.
 import { store, commit, getProduct, productSold } from './store.js';
-import { openSheet, toast, undoToast, confirmDanger, fileToSquareJpeg, pickFile, imgSrc, copyText, readClipboard } from './ui.js';
-import { esc, money, uid, parseMoney, centsToInput, parseIntSafe, todayISO, fmtDate, isSafeUrl, normName } from './util.js';
+import { openSheet, toast, undoToast, confirmDanger, fileToSquareJpeg, pickFile, imgSrc, copyText, readClipboard, openAmountPad } from './ui.js';
+import { esc, money, uid, todayISO, fmtDate, isSafeUrl, normName } from './util.js';
 import { PRODUCT_CATS, PRODUCT_CAT_KEYS, sortedTiers } from './model.js';
-import { chips, bindChoice, thumb } from './components.js';
+import { chips, bindChoice, thumb, sec, amountRow, setAmountRow } from './components.js';
 import { icon, CAT_GLYPH } from './icons.js';
 import { AI_PROMPT, parseAiResponse } from './ai.js';
 
@@ -17,11 +17,12 @@ export function openProductEditor(id, { preset = null } = {}) {
     note: '', link: '', active: true, priceHistory: [], ...(preset || {}),
   };
   let dirty = false;
+  let stockVal = p.stock ?? 0;
   const sold = orig ? productSold(orig.id) : null;
 
   const sheet = openSheet({
     title: orig ? 'Artikel bearbeiten' : 'Neuer Artikel',
-    right: 'Sichern',
+    right: 'Speichern',
     dirty: () => dirty,
     content: `
       <div class="photo-row">
@@ -29,53 +30,44 @@ export function openProductEditor(id, { preset = null } = {}) {
         <div class="photo-actions">
           <button type="button" class="btn sm" data-act="photo">${icon('camera')}<span data-photo-label>Foto wählen</span></button>
           <button type="button" class="link small danger" data-act="photo-del" hidden>Foto entfernen</button>
-          <p class="hint">Wird quadratisch zugeschnitten und nur auf diesem Gerät gespeichert.</p>
         </div>
       </div>
       <div class="group">
         <label class="field"><span class="field-label">Name</span><input type="text" class="in" data-f="name" value="${esc(p.name)}" placeholder="z. B. Red Cherry Garnele" maxlength="60" autocomplete="off"></label>
-        <label class="field"><span class="field-label">Stückpreis (€)</span><input class="in big" data-f="price" inputmode="decimal" autocomplete="off" value="${esc(centsToInput(p.price))}" placeholder="0,00"></label>
+        ${amountRow('price', 'Stückpreis', p.price, { placeholder: 'Preis eintragen' })}
       </div>
-      <div class="sec-label">Kategorie</div>
-      ${chips('cat', PRODUCT_CAT_KEYS.map((k) => ({ value: k, label: PRODUCT_CATS[k].label })), p.category)}
-
-      <div class="sec-label">Mengenrabatt <span class="muted">(optional)</span></div>
-      <div class="group" data-tiers></div>
-
-      <div class="sec-label">Bestand <span class="muted">(optional)</span></div>
-      <div class="group">
-        <label class="switch-row"><span><strong>Bestand mitzählen</strong><small>Wird bei jedem Verkauf automatisch verringert.</small></span>
-          <input type="checkbox" class="switch" data-f="track" ${p.stock != null ? 'checked' : ''}></label>
-        <div class="field stock-field" data-stockwrap ${p.stock != null ? '' : 'hidden'}>
-          <span class="field-label">Aktuell vorhanden</span>
-          <span class="stepper">
-            <button type="button" data-stock="-1" aria-label="weniger">${icon('minus')}</button>
-            <input class="in num" data-f="stock" inputmode="numeric" value="${p.stock ?? 0}" aria-label="Bestand">
-            <button type="button" data-stock="1" aria-label="mehr">${icon('plus')}</button>
-          </span>
-        </div>
-      </div>
-
+      ${sec('Kategorie', chips('cat', PRODUCT_CAT_KEYS.map((k) => ({ value: k, label: PRODUCT_CATS[k].label })), p.category))}
+      ${sec('Mengenrabatt <span class="muted">(optional, z. B. ab 10 Stück je 1,20 €)</span>', '<div class="group" data-tiers></div>')}
+      ${sec('Bestand <span class="muted">(optional)</span>', `
+        <div class="group">
+          <label class="switch-row"><span><strong>Bestand mitzählen</strong><small>Wird bei jedem Verkauf automatisch verringert.</small></span>
+            <input type="checkbox" class="switch" data-f="track" ${p.stock != null ? 'checked' : ''}></label>
+          <div class="field stock-field" data-stockwrap ${p.stock != null ? '' : 'hidden'}>
+            <span class="field-label">Aktuell vorhanden</span>
+            <span class="stepper">
+              <button type="button" data-stock="-1" aria-label="weniger">${icon('minus')}</button>
+              <button type="button" class="stepper-val" data-act="stock-pad" aria-label="Bestand eintippen">${stockVal}</button>
+              <button type="button" data-stock="1" aria-label="mehr">${icon('plus')}</button>
+            </span>
+          </div>
+        </div>`)}
       <div class="group">
         <label class="switch-row"><span><strong>In der Kasse anzeigen</strong><small>Aus = archiviert, z. B. wenn gerade nichts da ist.</small></span>
           <input type="checkbox" class="switch" data-f="active" ${p.active ? 'checked' : ''}></label>
       </div>
-
-      <div class="group">
-        <label class="field"><span class="field-label">Link zur Anzeige</span><input type="url" class="in" data-f="link" value="${esc(p.link || '')}" placeholder="https://www.kleinanzeigen.de/…" autocomplete="off" autocapitalize="off"></label>
-        <label class="field"><span class="field-label">Beschreibung / Notiz</span><textarea class="in" data-f="note" rows="3" maxlength="400" placeholder="optional">${esc(p.note || '')}</textarea></label>
-      </div>
-      ${p.link && isSafeUrl(p.link) ? `<a class="btn block" href="${esc(p.link)}" target="_blank" rel="noopener">${icon('external')}Anzeige öffnen</a>` : ''}
-
-      ${orig ? `
-      <div class="sec-label">Statistik</div>
-      <div class="group">
-        <div class="kv"><span>Verkauft</span><span>${sold.qty} Stück</span></div>
-        <div class="kv"><span>Umsatz</span><span>${money(sold.revenue)}</span></div>
-        ${(orig.priceHistory || []).slice(-5).reverse().map((h) => `<div class="kv"><span>Preis geändert ${esc(fmtDate(h.date))}</span><span>${money(h.from)} → ${money(h.to)}</span></div>`).join('')}
-      </div>
-      <p class="hint">Preisänderungen gelten nur für neue Verkäufe. Bisherige Verkäufe behalten den damaligen Preis.</p>
-      <button type="button" class="btn danger block" data-act="delete">${icon('trash')}Artikel löschen</button>` : ''}`,
+      ${sec('Anzeige & Notiz <span class="muted">(optional)</span>', `
+        <div class="group">
+          <label class="field"><span class="field-label">Link zur Anzeige</span><input type="url" class="in" data-f="link" value="${esc(p.link || '')}" placeholder="https://www.kleinanzeigen.de/…" autocomplete="off" autocapitalize="off"></label>
+          <label class="field"><span class="field-label">Beschreibung</span><textarea class="in" data-f="note" rows="2" maxlength="400" placeholder="optional">${esc(p.note || '')}</textarea></label>
+        </div>
+        ${p.link && isSafeUrl(p.link) ? `<a class="btn block" href="${esc(p.link)}" target="_blank" rel="noopener">${icon('external')}Anzeige öffnen</a>` : ''}`)}
+      ${orig ? sec('Statistik', `
+        <div class="group">
+          <div class="kv"><span>Verkauft</span><span>${sold.qty} Stück · ${money(sold.revenue)}</span></div>
+          ${(orig.priceHistory || []).slice(-5).reverse().map((h) => `<div class="kv"><span>Preis geändert ${esc(fmtDate(h.date))}</span><span>${money(h.from)} → ${money(h.to)}</span></div>`).join('')}
+        </div>
+        <p class="hint">Preisänderungen gelten nur für neue Verkäufe. Bisherige Verkäufe behalten ihren Preis.</p>`) +
+        `<button type="button" class="btn danger block" data-act="delete">${icon('trash')}Artikel löschen</button>` : ''}`,
     onRight: () => save(),
   });
   const body = sheet.body;
@@ -90,19 +82,19 @@ export function openProductEditor(id, { preset = null } = {}) {
   function renderTiers() {
     const wrap = body.querySelector('[data-tiers]');
     wrap.innerHTML = p.tiers.map((t, i) => `
-      <div class="tier" data-i="${i}">
-        <span>ab</span><input class="in num" data-tier-min="${i}" inputmode="numeric" value="${t.min ?? ''}" placeholder="10" aria-label="ab Stück">
-        <span>Stück je</span><input class="in num wide" data-tier-price="${i}" inputmode="decimal" value="${esc(centsToInput(t.price))}" placeholder="1,20" aria-label="Preis pro Stück">
-        <span>€</span>
-        <button type="button" class="icon-btn" data-tier-del="${i}" aria-label="entfernen">${icon('x')}</button>
+      <div class="tier">
+        <span>ab</span>
+        <button type="button" class="pill-btn ${t.min ? '' : 'empty'}" data-tier-min="${i}">${t.min ? `${t.min} Stück` : 'Menge'}</button>
+        <span>je</span>
+        <button type="button" class="pill-btn ${t.price != null ? '' : 'empty'}" data-tier-price="${i}">${t.price != null ? money(t.price) : 'Preis'}</button>
+        <button type="button" class="icon-btn" data-tier-del="${i}" aria-label="Staffel entfernen">${icon('x')}</button>
       </div>`).join('') +
-      `<button type="button" class="row add-row" data-act="tier-add">${icon('plus')}<span>${p.tiers.length ? 'Weitere Staffel' : 'Staffelpreis hinzufügen, z. B. „ab 10 Stück je 1,20 €“'}</span></button>`;
+      `<button type="button" class="row add-row" data-act="tier-add">${icon('plus')}<span>${p.tiers.length ? 'Weitere Staffel' : 'Staffelpreis hinzufügen'}</span></button>`;
   }
-  // Eingaben der Staffeln laufend übernehmen
-  body.addEventListener('input', (e) => {
-    const m = e.target.dataset.tierMin, pr = e.target.dataset.tierPrice;
-    if (m !== undefined) p.tiers[+m].min = parseIntSafe(e.target.value);
-    if (pr !== undefined) p.tiers[+pr].price = parseMoney(e.target.value);
+  const renderStock = () => { body.querySelector('[data-act="stock-pad"]').textContent = stockVal; };
+  const editTierPrice = (i) => openAmountPad({
+    title: `Preis ab ${p.tiers[i].min || '?'} Stück`, label: 'pro Stück', initial: p.tiers[i].price,
+    onSet: (c) => { p.tiers[i].price = c; dirty = true; renderTiers(); },
   });
   renderPhoto();
   renderTiers();
@@ -110,12 +102,30 @@ export function openProductEditor(id, { preset = null } = {}) {
   bindChoice(body, '[data-chips="cat"]', (v) => { p.category = v; dirty = true; if (!p.image) renderPhoto(); });
 
   const trackIn = body.querySelector('[data-f="track"]');
-  trackIn.addEventListener('change', () => { body.querySelector('[data-stockwrap]').hidden = !trackIn.checked; });
-  const stockIn = body.querySelector('[data-f="stock"]');
+  trackIn.addEventListener('change', () => { body.querySelector('[data-stockwrap]').hidden = !trackIn.checked; dirty = true; });
 
   body.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-amt="price"]')) {
+      openAmountPad({
+        title: 'Stückpreis', initial: p.price,
+        onSet: (c) => { p.price = c; dirty = true; setAmountRow(body, 'price', c, { placeholder: 'Preis eintragen' }); },
+      });
+      return;
+    }
     const st = e.target.closest('[data-stock]');
-    if (st) { stockIn.value = Math.max(0, (parseIntSafe(stockIn.value) || 0) + +st.dataset.stock); dirty = true; return; }
+    if (st) { stockVal = Math.max(0, stockVal + +st.dataset.stock); dirty = true; renderStock(); return; }
+    const tm = e.target.closest('[data-tier-min]');
+    if (tm) {
+      const i = +tm.dataset.tierMin;
+      openAmountPad({
+        title: 'Ab wie vielen Stück?', integer: true, initial: p.tiers[i].min,
+        hint: (n) => (n != null && n < 2 ? 'Mindestens 2 Stück' : ''),
+        onSet: (n) => { p.tiers[i].min = n; dirty = true; renderTiers(); },
+      });
+      return;
+    }
+    const tp = e.target.closest('[data-tier-price]');
+    if (tp) { editTierPrice(+tp.dataset.tierPrice); return; }
     const td = e.target.closest('[data-tier-del]');
     if (td) { p.tiers.splice(+td.dataset.tierDel, 1); dirty = true; renderTiers(); return; }
     const a = e.target.closest('[data-act]');
@@ -125,8 +135,13 @@ export function openProductEditor(id, { preset = null } = {}) {
       p.tiers.push({ min: last && last.min ? last.min * 2 : 10, price: null });
       dirty = true;
       renderTiers();
-      const inp = body.querySelector(`[data-tier-price="${p.tiers.length - 1}"]`);
-      inp && inp.focus();
+      editTierPrice(p.tiers.length - 1);
+    }
+    if (a.dataset.act === 'stock-pad') {
+      openAmountPad({
+        title: 'Bestand', label: 'Aktuell vorhanden', integer: true, initial: stockVal || null, allowEmpty: true,
+        onSet: (n) => { stockVal = n || 0; dirty = true; renderStock(); },
+      });
     }
     if (a.dataset.act === 'photo') {
       const file = await pickFile('image/*');
@@ -146,14 +161,13 @@ export function openProductEditor(id, { preset = null } = {}) {
 
   function save() {
     const name = body.querySelector('[data-f="name"]').value.trim();
-    const priceRaw = body.querySelector('[data-f="price"]').value;
-    const price = parseMoney(priceRaw);
+    const price = p.price;
     if (!name) { toast('Bitte einen Namen eingeben'); body.querySelector('[data-f="name"]').focus(); return false; }
-    if (price === null || price < 0) { toast('Bitte einen gültigen Stückpreis eingeben'); body.querySelector('[data-f="price"]').focus(); return false; }
+    if (price === null || price < 0) { toast('Bitte einen Stückpreis eintragen'); return false; }
     const tiers = [];
     for (const t of p.tiers) {
       if (t.min == null && t.price == null) continue;
-      if (!t.min || t.min < 2 || t.price == null || t.price < 0) { toast('Mengenrabatt unvollständig: „ab“ mindestens 2 Stück und ein Preis'); return false; }
+      if (!t.min || t.min < 2 || t.price == null || t.price < 0) { toast('Mengenrabatt unvollständig: ab mindestens 2 Stück und ein Preis'); return false; }
       if (!tiers.some((x) => x.min === t.min)) tiers.push({ min: t.min, price: t.price });
     }
     const link = body.querySelector('[data-f="link"]').value.trim();
@@ -162,7 +176,7 @@ export function openProductEditor(id, { preset = null } = {}) {
       name, price,
       category: p.category,
       tiers: sortedTiers(tiers),
-      stock: trackIn.checked ? Math.max(0, parseIntSafe(stockIn.value) || 0) : null,
+      stock: trackIn.checked ? Math.max(0, stockVal) : null,
       image: p.image,
       active: body.querySelector('[data-f="active"]').checked,
       link,
@@ -241,24 +255,22 @@ export function openAiImport() {
   }
   function renderResult() {
     const out = body.querySelector('[data-result]');
-    out.innerHTML = `<div class="sec-label">${parsed.length} ${parsed.length === 1 ? 'Artikel' : 'Artikel'} erkannt – bitte prüfen</div>
+    out.innerHTML = `<div class="stack">${sec(`${parsed.length} Artikel erkannt – bitte prüfen`, '')}
       ${parsed.map((it, i) => `
         <div class="group import-item ${it.include ? '' : 'off'}">
           <label class="switch-row tight"><span><strong>${it.match ? 'Vorhandenen Artikel aktualisieren' : 'Neuer Artikel'}</strong>
             <small>${esc((PRODUCT_CATS[it.category] || PRODUCT_CATS.sonstiges).label)}${it.stock != null ? ` · Bestand ${it.stock}` : ''}${it.tiers.length ? ` · ${it.tiers.map((t) => `ab ${t.min}: ${money(t.price)}`).join(', ')}` : ''}</small></span>
             <input type="checkbox" class="switch" data-inc="${i}" ${it.include ? 'checked' : ''}></label>
           <label class="field"><span class="field-label">Name</span><input class="in" data-iname="${i}" value="${esc(it.name)}" maxlength="60"></label>
-          <label class="field"><span class="field-label">Stückpreis (€)${it.match && it.match.price !== it.price ? ` <span class="muted">bisher ${money(it.match.price)}</span>` : ''}</span>
-            <input class="in" data-iprice="${i}" inputmode="decimal" value="${esc(centsToInput(it.price))}" placeholder="Preis fehlt – bitte eintragen"></label>
+          ${amountRow(`iprice-${i}`, it.match && it.match.price !== it.price ? `Stückpreis (bisher ${money(it.match.price)})` : 'Stückpreis', it.price, { placeholder: 'Preis fehlt' })}
           ${it.note ? `<p class="field-note">${esc(it.note)}</p>` : ''}
         </div>`).join('')}
-      <p class="hint">Fotos kann die KI nicht übertragen – die fügst du danach im Artikel hinzu.</p>`;
+      <p class="hint">Fotos kann die KI nicht übertragen – die fügst du danach im Artikel hinzu.</p></div>`;
     sheet.setRight('Übernehmen', parsed.some((x) => x.include));
   }
   body.addEventListener('input', (e) => {
     const t = e.target;
     if (t.dataset.iname !== undefined) parsed[+t.dataset.iname].name = t.value;
-    if (t.dataset.iprice !== undefined) parsed[+t.dataset.iprice].price = parseMoney(t.value);
   });
   body.addEventListener('change', (e) => {
     const t = e.target;
@@ -269,6 +281,15 @@ export function openAiImport() {
     }
   });
   body.addEventListener('click', async (e) => {
+    const pr = e.target.closest('[data-amt^="iprice-"]');
+    if (pr) {
+      const i = +pr.dataset.amt.split('-')[1];
+      openAmountPad({
+        title: parsed[i].name || 'Stückpreis', label: 'Stückpreis', initial: parsed[i].price,
+        onSet: (c) => { parsed[i].price = c; setAmountRow(body, `iprice-${i}`, c, { placeholder: 'Preis fehlt' }); },
+      });
+      return;
+    }
     const a = e.target.closest('[data-act]');
     if (!a) return;
     if (a.dataset.act === 'copy') {

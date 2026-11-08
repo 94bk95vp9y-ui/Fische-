@@ -1,9 +1,9 @@
 // Formulare und Detailansichten für Einträge (Verkauf, Ausgabe, Entnahme, Einlage, Abgleich, Messe).
 import { store, commit, getEvent, getProduct, sortedEvents, getBalance } from './store.js';
-import { openSheet, actionSheet, createKeypad, undoToast, toast, confirmDanger } from './ui.js';
-import { esc, money, uid, todayISO, isValidISO, fmtDateLong, fmtDateTime, parseMoney, centsToInput, fmtDate } from './util.js';
+import { openSheet, actionSheet, createKeypad, undoToast, toast, confirmDanger, openAmountPad } from './ui.js';
+import { esc, money, uid, todayISO, isValidISO, fmtDateLong, fmtDateTime, fmtDate } from './util.js';
 import { CHANNELS, CHANNEL_KEYS, EXPENSE_CATS, EXPENSE_CAT_KEYS, ENTRY_TYPES, entryTitle, itemsQty, unitPriceFor, takeStock, returnStock } from './model.js';
-import { seg, chips, bindChoice } from './components.js';
+import { seg, chips, bindChoice, sec, amountRow, setAmountRow } from './components.js';
 import { icon } from './icons.js';
 import { go } from './nav.js';
 
@@ -14,11 +14,14 @@ const TYPE_OPTIONS = [
   { value: 'deposit', label: 'Einlage' },
 ];
 const HINTS = {
-  sale: 'Schnell erfasst, ohne einzelne Artikel zu zählen.',
-  expense: 'Geld, das du für das Hobby/Geschäft ausgegeben hast. Mindert den Gewinn.',
-  withdrawal: 'Geld, das du privat herausnimmst. Mindert den Kassenstand, nicht den Gewinn.',
-  deposit: 'Eigenes Geld, das du hineinlegst – z. B. ein Startbetrag. Kein Umsatz.',
+  sale: 'Verkauf ohne einzelne Artikel',
+  expense: 'Mindert den Gewinn',
+  withdrawal: 'Für dich privat – mindert nur den Kassenstand',
+  deposit: 'Eigenes Geld in die Kasse – kein Umsatz',
 };
+const CHANNEL_OPTIONS = CHANNEL_KEYS.map((k) => ({ value: k, label: CHANNELS[k].short }));
+const eventRow = (selected, allowNone = false) =>
+  `<div class="group"><label class="field row-field"><span class="field-label">${icon('stall')}Messe</span><select class="in" data-f="event" ${allowNone ? 'data-allow-none="1"' : ''}>${eventOptions(selected, { allowNone })}</select></label></div>`;
 
 function eventOptions(selected, { allowNone = false } = {}) {
   const evs = sortedEvents();
@@ -66,7 +69,7 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
   const typeLabel = (t) => (editing ? `${ENTRY_TYPES[t].label} bearbeiten` : 'Neuer Eintrag');
   const sheet = openSheet({
     title: typeLabel(v.type),
-    right: 'Sichern',
+    right: 'Speichern',
     cls: 'sheet-keypad',
     dirty: () => kp.getCents() !== (entry ? entry.amount : null) && kp.buffer !== '',
     content: `
@@ -75,7 +78,7 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
         <span class="amount-value"><span data-amt>0</span> €</span>
         <span class="amount-hint" data-hint></span>
       </div>
-      <div data-typefields></div>
+      <div class="contents" data-typefields></div>
       <div class="group compact">
         <label class="field row-field"><span class="field-label">${icon('calendar')}Datum</span><input type="date" class="in" data-f="date" value="${esc(v.date)}"></label>
         <label class="field row-field"><span class="field-label">${icon('pencil')}Notiz</span><input type="text" class="in" data-f="note" value="${esc(v.note)}" placeholder="optional" enterkeyhint="done" maxlength="140"></label>
@@ -91,11 +94,11 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
   function renderTypeFields() {
     let html = '';
     if (v.type === 'sale') {
-      html = `<div class="sec-label">Verkauft über</div>${chips('channel', CHANNEL_KEYS.map((k) => ({ value: k, label: CHANNELS[k].short })), v.channel)}
-        ${v.channel === 'messe' ? `<div class="group compact"><label class="field row-field"><span class="field-label">${icon('stall')}Messe</span><select class="in" data-f="event">${eventOptions(v.eventId)}</select></label></div>` : ''}`;
+      html = sec('Verkauft über', seg('channel', CHANNEL_OPTIONS, v.channel)) +
+        (v.channel === 'messe' ? eventRow(v.eventId) : '');
     } else if (v.type === 'expense') {
-      html = `<div class="sec-label">Wofür?</div>${chips('category', EXPENSE_CAT_KEYS.map((k) => ({ value: k, label: EXPENSE_CATS[k] })), v.category)}
-        ${st.events.length ? `<div class="group compact"><label class="field row-field"><span class="field-label">${icon('stall')}Messe</span><select class="in" data-f="event" data-allow-none="1">${eventOptions(v.eventId, { allowNone: true })}</select></label></div>` : ''}`;
+      html = sec('Wofür?', chips('category', EXPENSE_CAT_KEYS.map((k) => ({ value: k, label: EXPENSE_CATS[k] })), v.category)) +
+        (st.events.length ? eventRow(v.eventId, true) : '');
     }
     fields.innerHTML = html;
     const sel = fields.querySelector('[data-f="event"]');
@@ -115,7 +118,7 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
     if (val === 'sale' && v.channel === 'messe' && !v.eventId && activeEv) v.eventId = activeEv.id;
     renderTypeFields();
   });
-  bindChoice(body, '[data-chips="channel"]', (val) => {
+  bindChoice(body, '[data-seg="channel"]', (val) => {
     v.channel = val;
     if (val === 'messe' && !v.eventId) v.eventId = activeEv?.id || sortedEvents()[0]?.id || '';
     renderTypeFields();
@@ -187,13 +190,12 @@ export function openEntryDetail(id) {
   let itemsHtml = '';
   if (e.items && e.items.length) {
     const diff = e.amount - e.listTotal;
-    itemsHtml = `<div class="sec-label">${itemsQty(e.items)} Stück</div>
-      <div class="group">
+    itemsHtml = sec(`${itemsQty(e.items)} Stück`, `<div class="group">
         ${e.items.map((i) => `<div class="line"><span class="line-name">${esc(i.name)}<small>${i.qty} × ${money(i.unit)}</small></span><span class="line-amt">${money(i.total)}</span></div>`).join('')}
         ${diff !== 0 ? `<div class="line sub"><span>Summe laut Preisen</span><span>${money(e.listTotal)}</span></div>
           <div class="line sub"><span>${diff < 0 ? 'Rabatt' : 'Aufpreis'}</span><span>${money(diff, { sign: true })}</span></div>` : ''}
         <div class="line total"><span>${e.status === 'open' ? 'Zu zahlen' : 'Bezahlt'}</span><span>${money(e.amount)}</span></div>
-      </div>`;
+      </div>`);
   }
 
   const sign = e.type === 'sale' || e.type === 'deposit' || (e.type === 'adjust' && e.amount > 0) ? 1 : -1;
@@ -256,30 +258,45 @@ export function markPaid(id) {
 // ------------------------------------------------------------------
 // Verkauf mit Artikeln bearbeiten
 // ------------------------------------------------------------------
+function bindEventWrap(body, v, { allowNone = false } = {}) {
+  const wrap = body.querySelector('[data-eventwrap]');
+  const render = () => {
+    wrap.innerHTML = v.channel === 'messe' ? eventRow(v.eventId, allowNone) : '';
+    const sel = wrap.querySelector('[data-f="event"]');
+    if (!sel) return;
+    bindEventSelect(sel, () => v.eventId);
+    sel.addEventListener('change', () => { if (sel.value !== '__new') v.eventId = sel.value; });
+    if (!v.eventId && sel.value && sel.value !== '__new') v.eventId = sel.value;
+  };
+  render();
+  return render;
+}
+
+function discountText(paid, listTotal) {
+  if (paid == null) return '';
+  const d = paid - listTotal;
+  if (d === 0) return '';
+  return d < 0 ? `Rabatt ${money(-d)}` : `Aufpreis ${money(d)}`;
+}
+
 export function openSaleEdit(id) {
   const orig = store.state.entries.find((x) => x.id === id);
   if (!orig) return;
   const items = orig.items.map((i) => ({ ...i }));
-  const v = { channel: orig.channel || 'ka', eventId: orig.eventId || '' };
+  const v = { channel: orig.channel || 'ka', eventId: orig.eventId || '', paid: orig.amount };
   let paidTouched = orig.amount !== orig.listTotal;
   let changed = false;
+  const listTotal = () => items.reduce((a, i) => a + i.unit * i.qty, 0);
 
   const sheet = openSheet({
     title: 'Verkauf bearbeiten',
-    right: 'Sichern',
+    right: 'Speichern',
     dirty: () => changed,
     content: `
-      <div class="sec-label">Artikel</div>
-      <div class="group" data-items></div>
-      <div class="group">
-        <label class="field"><span class="field-label">Kunde hat bezahlt (€)</span>
-          <input class="in big" data-f="paid" inputmode="decimal" autocomplete="off" value="${esc(centsToInput(orig.amount))}"></label>
-      </div>
-      <div class="sec-label">Verkauft über</div>
-      ${chips('channel', CHANNEL_KEYS.map((k) => ({ value: k, label: CHANNELS[k].short })), v.channel)}
-      <div class="group compact" data-eventwrap ${v.channel === 'messe' ? '' : 'hidden'}>
-        <label class="field row-field"><span class="field-label">${icon('stall')}Messe</span><select class="in" data-f="event">${eventOptions(v.eventId)}</select></label>
-      </div>
+      ${sec('Artikel', '<div class="group" data-items></div>')}
+      <div class="group">${amountRow('paid', 'Kunde hat bezahlt', v.paid)}</div>
+      ${sec('Verkauft über', seg('channel', CHANNEL_OPTIONS, v.channel))}
+      <div class="contents" data-eventwrap></div>
       <div class="group compact">
         <label class="field row-field"><span class="field-label">${icon('calendar')}Datum</span><input type="date" class="in" data-f="date" value="${esc(orig.date)}"></label>
         <label class="field row-field"><span class="field-label">${icon('pencil')}Notiz</span><input type="text" class="in" data-f="note" value="${esc(orig.note || '')}" placeholder="optional" maxlength="140"></label>
@@ -289,8 +306,6 @@ export function openSaleEdit(id) {
   const body = sheet.body;
   body.addEventListener('input', () => { changed = true; });
   body.addEventListener('change', () => { changed = true; });
-  const paidIn = body.querySelector('[data-f="paid"]');
-  const listTotal = () => items.reduce((s, i) => s + i.unit * i.qty, 0);
   function renderItems() {
     body.querySelector('[data-items]').innerHTML = items.map((i, idx) => `
       <div class="line edit ${i.qty === 0 ? 'removed' : ''}">
@@ -303,33 +318,32 @@ export function openSaleEdit(id) {
       </div>`).join('') + `<div class="line total"><span>Summe laut Preisen</span><span>${money(listTotal())}</span></div>`;
   }
   renderItems();
+  const renderEvent = bindEventWrap(body, v);
+  bindChoice(body, '[data-seg="channel"]', (val) => { v.channel = val; changed = true; renderEvent(); });
+
   body.addEventListener('click', (e) => {
     const b = e.target.closest('[data-step]');
-    if (!b) return;
-    const it = items[+b.dataset.idx];
-    it.qty = Math.max(0, it.qty + +b.dataset.step);
-    changed = true;
-    renderItems();
-    if (!paidTouched) paidIn.value = centsToInput(listTotal());
-  });
-  paidIn.addEventListener('input', () => { paidTouched = true; });
-  bindChoice(body, '[data-chips="channel"]', (val) => {
-    v.channel = val;
-    body.querySelector('[data-eventwrap]').hidden = val !== 'messe';
-    if (val === 'messe' && !v.eventId) {
-      const sel = body.querySelector('[data-f="event"]');
-      if (sel.value && sel.value !== '__new') v.eventId = sel.value;
+    if (b) {
+      const it = items[+b.dataset.idx];
+      it.qty = Math.max(0, it.qty + +b.dataset.step);
+      changed = true;
+      renderItems();
+      if (!paidTouched) { v.paid = listTotal(); setAmountRow(body, 'paid', v.paid); }
+      return;
+    }
+    if (e.target.closest('[data-amt="paid"]')) {
+      openAmountPad({
+        title: 'Kunde hat bezahlt', initial: v.paid,
+        hint: (c) => discountText(c, listTotal()),
+        quick: [{ label: `Summe ${money(listTotal())}`, value: listTotal() }],
+        onSet: (c) => { v.paid = c; paidTouched = true; changed = true; setAmountRow(body, 'paid', c); },
+      });
     }
   });
-  const sel = body.querySelector('[data-f="event"]');
-  bindEventSelect(sel, () => v.eventId);
-  sel.addEventListener('change', () => { if (sel.value !== '__new') v.eventId = sel.value; });
 
   function save() {
     const kept = items.filter((i) => i.qty > 0);
     if (!kept.length) { toast('Mindestens ein Artikel muss bleiben – sonst den Eintrag löschen'); return false; }
-    const paid = parseMoney(paidIn.value);
-    if (paid === null || paid < 0) { toast('Bitte einen gültigen Betrag eingeben'); paidIn.focus(); return false; }
     if (v.channel === 'messe' && !v.eventId) { toast('Bitte eine Messe auswählen'); return false; }
     let date = body.querySelector('[data-f="date"]').value;
     if (!isValidISO(date)) date = orig.date;
@@ -349,7 +363,7 @@ export function openSaleEdit(id) {
       });
       e.items = kept.map((i) => ({ ...i, total: i.unit * i.qty }));
       e.listTotal = e.items.reduce((a, i) => a + i.total, 0);
-      e.amount = paid;
+      e.amount = v.paid;
       e.channel = v.channel;
       if (v.channel === 'messe') e.eventId = v.eventId; else delete e.eventId;
       e.date = date;
@@ -364,35 +378,42 @@ export function openSaleEdit(id) {
 // ------------------------------------------------------------------
 // Kasse abschließen (aus dem Warenkorb)
 // ------------------------------------------------------------------
+let showChange = false; // „Rückgeld“ bleibt offen, wenn man es einmal benutzt hat
+
 export function openCheckout(lines, onDone) {
   // lines: [{product, qty, unit, total}]
   const st = store.state;
-  const listTotal = lines.reduce((s, l) => s + l.total, 0);
+  const listTotal = lines.reduce((a, l) => a + l.total, 0);
   const activeEv = st.settings.activeEventId && getEvent(st.settings.activeEventId);
   const v = {
     channel: activeEv ? 'messe' : st.settings.defaultChannel || 'ka',
     eventId: activeEv ? activeEv.id : '',
+    paid: listTotal,
+    given: null,
   };
-  const qty = lines.reduce((s, l) => s + l.qty, 0);
+  const qty = lines.reduce((a, l) => a + l.qty, 0);
 
   const sheet = openSheet({
     title: 'Verkauf',
     right: 'Speichern',
     content: `
-      <div class="group">
-        ${lines.map((l) => `<div class="line"><span class="line-name">${esc(l.product.name)}<small>${l.qty} × ${money(l.unit)}${l.unit !== l.product.price ? ' (Staffelpreis)' : ''}</small></span><span class="line-amt">${money(l.total)}</span></div>`).join('')}
-        <div class="line total"><span>Summe · ${qty} Stück</span><span>${money(listTotal)}</span></div>
-      </div>
-      <div class="group">
-        <label class="field"><span class="field-label">Kunde zahlt (€)</span>
-          <input class="in big" data-f="paid" inputmode="decimal" autocomplete="off" value="${esc(centsToInput(listTotal))}"></label>
-        <div class="field-note" data-diff></div>
-      </div>
-      <div class="sec-label">Verkauft über</div>
-      ${chips('channel', CHANNEL_KEYS.map((k) => ({ value: k, label: CHANNELS[k].short })), v.channel)}
-      <div class="group compact" data-eventwrap ${v.channel === 'messe' ? '' : 'hidden'}>
-        <label class="field row-field"><span class="field-label">${icon('stall')}Messe</span><select class="in" data-f="event">${eventOptions(v.eventId)}</select></label>
-      </div>
+      <section class="pay">
+        <span class="pay-label">Kunde zahlt</span>
+        <button type="button" class="pay-amount" data-act="paid" aria-label="Betrag ändern"><span data-paid></span>${icon('pencil')}</button>
+        <span class="pay-sub" data-paysub></span>
+        <button type="button" class="pay-toggle" data-act="change" ${showChange ? 'hidden' : ''}>Rückgeld berechnen</button>
+        <div class="pay-change" data-changebox ${showChange ? '' : 'hidden'}>
+          <span class="pay-change-label">Kunde gibt</span>
+          <div class="chips center" data-given></div>
+          <strong class="pay-change-res" data-change></strong>
+        </div>
+      </section>
+      ${sec('Verkauft über', seg('channel', CHANNEL_OPTIONS, v.channel))}
+      <div class="contents" data-eventwrap></div>
+      ${sec(`Artikel · ${qty} Stück`, `<div class="group">
+        ${lines.map((l) => `<div class="line"><span class="line-name">${esc(l.product.name)}<small>${l.qty} × ${money(l.unit)}${l.unit !== l.product.price ? ' · Staffelpreis' : ''}</small></span><span class="line-amt">${money(l.total)}</span></div>`).join('')}
+        <div class="line total"><span>Summe</span><span>${money(listTotal)}</span></div>
+      </div>`)}
       <div class="group compact">
         <label class="field row-field"><span class="field-label">${icon('calendar')}Datum</span><input type="date" class="in" data-f="date" value="${todayISO()}"></label>
         <label class="field row-field"><span class="field-label">${icon('pencil')}Notiz</span><input type="text" class="in" data-f="note" placeholder="z. B. Name des Käufers" maxlength="140"></label>
@@ -400,59 +421,69 @@ export function openCheckout(lines, onDone) {
       <div class="group">
         <label class="switch-row"><span><strong>Noch nicht bezahlt</strong><small>Reserviert, Abholung später. Zählt erst nach „bezahlt“ als Umsatz.</small></span>
           <input type="checkbox" class="switch" data-f="open"></label>
-      </div>
-      <details class="change-calc">
-        <summary>Rückgeld berechnen</summary>
-        <div class="group">
-          <label class="field"><span class="field-label">Kunde gibt (€)</span><input class="in" data-f="given" inputmode="decimal" autocomplete="off" placeholder="z. B. 20"></label>
-          <div class="field-note strong" data-change></div>
-        </div>
-      </details>`,
+      </div>`,
     onRight: () => save(),
   });
   const body = sheet.body;
-  const paidIn = body.querySelector('[data-f="paid"]');
-  const givenIn = body.querySelector('[data-f="given"]');
-  function updateDiff() {
-    const paid = parseMoney(paidIn.value);
-    const el = body.querySelector('[data-diff]');
-    if (paid === null) { el.textContent = paidIn.value ? 'Betrag nicht erkannt' : ''; return; }
-    const d = paid - listTotal;
-    el.textContent = d === 0 ? '' : d < 0 ? `Rabatt ${money(-d)}` : `Aufpreis ${money(d)}`;
-    updateChange();
+
+  function renderPay() {
+    body.querySelector('[data-paid]').textContent = money(v.paid);
+    const d = discountText(v.paid, listTotal);
+    body.querySelector('[data-paysub]').innerHTML = d
+      ? `Summe ${esc(money(listTotal))} · <strong>${esc(d)}</strong>`
+      : 'Antippen zum Ändern, z. B. bei Rabatt';
+    // Scheine, die für den Betrag reichen (max. 3) + „Anderer“
+    const notes = [500, 1000, 2000, 5000, 10000].filter((n) => n >= v.paid).slice(0, 3);
+    if (v.given !== null && v.given < v.paid) v.given = null;
+    body.querySelector('[data-given]').innerHTML =
+      notes.map((n) => `<button type="button" class="chip ${v.given === n ? 'on' : ''}" data-given-v="${n}">${money(n, { round: true })}</button>`).join('') +
+      `<button type="button" class="chip ${v.given !== null && !notes.includes(v.given) ? 'on' : ''}" data-given-v="other">${v.given !== null && !notes.includes(v.given) ? esc(money(v.given)) : 'Anderer'}</button>`;
+    body.querySelector('[data-change]').textContent = v.given !== null ? `Rückgeld ${money(v.given - v.paid)}` : '';
   }
-  function updateChange() {
-    const paid = parseMoney(paidIn.value) ?? listTotal;
-    const given = parseMoney(givenIn.value);
-    const el = body.querySelector('[data-change]');
-    if (given === null) { el.textContent = ''; return; }
-    el.textContent = given >= paid ? `Rückgeld: ${money(given - paid)}` : `Es fehlen noch ${money(paid - given)}`;
-  }
-  paidIn.addEventListener('input', updateDiff);
-  paidIn.addEventListener('focus', () => paidIn.select());
-  givenIn.addEventListener('input', updateChange);
-  bindChoice(body, '[data-chips="channel"]', (val) => {
-    v.channel = val;
-    body.querySelector('[data-eventwrap]').hidden = val !== 'messe';
-    if (val === 'messe' && !v.eventId) {
-      const sel = body.querySelector('[data-f="event"]');
-      if (sel.value && sel.value !== '__new') v.eventId = sel.value;
+  renderPay();
+  const renderEvent = bindEventWrap(body, v);
+  bindChoice(body, '[data-seg="channel"]', (val) => { v.channel = val; renderEvent(); });
+
+  body.addEventListener('click', (e) => {
+    if (e.target.closest('[data-act="paid"]')) {
+      openAmountPad({
+        title: 'Kunde zahlt', initial: v.paid,
+        hint: (c) => discountText(c, listTotal),
+        quick: [{ label: `Summe ${money(listTotal)}`, value: listTotal }],
+        onSet: (c) => { v.paid = c; renderPay(); },
+      });
+      return;
+    }
+    if (e.target.closest('[data-act="change"]')) {
+      showChange = true;
+      e.target.closest('[data-act="change"]').hidden = true;
+      body.querySelector('[data-changebox]').hidden = false;
+      return;
+    }
+    const g = e.target.closest('[data-given-v]');
+    if (g) {
+      if (g.dataset.givenV === 'other') {
+        openAmountPad({
+          title: 'Kunde gibt', initial: v.given,
+          hint: (c) => (c == null ? '' : c >= v.paid ? `Rückgeld ${money(c - v.paid)}` : `Es fehlen ${money(v.paid - c)}`),
+          onSet: (c) => { v.given = c >= v.paid ? c : null; if (c < v.paid) toast('Das reicht nicht für den Betrag'); renderPay(); },
+        });
+      } else {
+        const n = +g.dataset.givenV;
+        v.given = v.given === n ? null : n;
+        renderPay();
+      }
     }
   });
-  const sel = body.querySelector('[data-f="event"]');
-  bindEventSelect(sel, () => v.eventId);
-  sel.addEventListener('change', () => { if (sel.value !== '__new') v.eventId = sel.value; });
 
   function save() {
-    const paid = parseMoney(paidIn.value);
-    if (paid === null || paid < 0) { toast('Bitte den bezahlten Betrag prüfen'); return false; }
     if (v.channel === 'messe' && !v.eventId) { toast('Bitte eine Messe auswählen oder anlegen'); return false; }
     let date = body.querySelector('[data-f="date"]').value;
     if (!isValidISO(date)) date = todayISO();
     const note = body.querySelector('[data-f="note"]').value.trim();
     const isOpen = body.querySelector('[data-f="open"]').checked;
     const e = {
-      id: uid(), type: 'sale', date, amount: paid, listTotal,
+      id: uid(), type: 'sale', date, amount: v.paid, listTotal,
       items: lines.map((l) => ({ pid: l.product.id, name: l.product.name, qty: l.qty, unit: l.unit, total: l.total, taken: 0 })),
       channel: v.channel, note, createdAt: Date.now(),
     };
@@ -463,7 +494,7 @@ export function openCheckout(lines, onDone) {
       s.entries.push(e);
     });
     onDone && onDone(undo);
-    undoToast(isOpen ? `Reserviert · ${money(paid)} offen` : `Verkauf gespeichert · ${money(paid, { sign: true })}`, () => { undo(); onDone && onDone(null, lines); });
+    undoToast(isOpen ? `Reserviert · ${money(v.paid)} offen` : `Verkauf gespeichert · ${money(v.paid, { sign: true })}`, () => { undo(); onDone && onDone(null, lines); });
     return true;
   }
 }
@@ -473,29 +504,29 @@ export function openCheckout(lines, onDone) {
 // ------------------------------------------------------------------
 export function openEventForm(event = null, { onSaved = null, simple = false } = {}) {
   const editing = !!event;
-  const isTodayDefault = !editing;
+  const amounts = { rev: null, fee: null, travel: null };
+  const LABELS = { rev: 'Einnahmen gesamt', fee: 'Standgebühr', travel: 'Fahrt & Sonstiges' };
   const sheet = openSheet({
-    title: editing ? 'Messe bearbeiten' : 'Neue Messe / Börse',
-    right: 'Sichern',
-    dirty: () => !!sheet.body.querySelector('[data-f="name"]').value.trim() && !editing,
+    title: editing ? 'Messe bearbeiten' : 'Neue Messe',
+    right: 'Speichern',
+    dirty: () => !editing && (!!sheet.body.querySelector('[data-f="name"]').value.trim() || Object.values(amounts).some((x) => x != null)),
     content: `
       <div class="group">
         <label class="field"><span class="field-label">Name</span><input type="text" class="in" data-f="name" value="${esc(event?.name || '')}" placeholder="z. B. Zierfischbörse Hamm" maxlength="80" autocomplete="off"></label>
-        <label class="field"><span class="field-label">Datum</span><input type="date" class="in" data-f="date" value="${esc(event?.date || todayISO())}"></label>
-        <label class="field"><span class="field-label">Ort</span><input type="text" class="in" data-f="place" value="${esc(event?.place || '')}" placeholder="optional" maxlength="80"></label>
+        <label class="field row-field"><span class="field-label">${icon('calendar')}Datum</span><input type="date" class="in" data-f="date" value="${esc(event?.date || todayISO())}"></label>
+        <label class="field row-field"><span class="field-label">Ort</span><input type="text" class="in" data-f="place" value="${esc(event?.place || '')}" placeholder="optional" maxlength="80"></label>
       </div>
-      ${!editing && !simple ? `
-      <div class="sec-label">Direkt eintragen (optional)</div>
-      <div class="group">
-        <label class="field"><span class="field-label">Einnahmen gesamt (€)</span><input class="in" data-f="rev" inputmode="decimal" autocomplete="off" placeholder="z. B. 200"></label>
-        <label class="field"><span class="field-label">Standgebühr (€)</span><input class="in" data-f="fee" inputmode="decimal" autocomplete="off" placeholder="0"></label>
-        <label class="field"><span class="field-label">Fahrt & Sonstiges (€)</span><input class="in" data-f="travel" inputmode="decimal" autocomplete="off" placeholder="0"></label>
-      </div>
-      <p class="hint">Trage die <strong>Einnahmen vor Abzug</strong> der Kosten ein – die Kosten werden separat als Ausgabe gebucht, sonst würden sie doppelt abgezogen. Wenn du auf der Messe lieber jeden Verkauf einzeln in der Kasse zählst, lass „Einnahmen“ leer und aktiviere den Messe-Modus.</p>` : ''}
+      ${!editing && !simple ? sec('Beträge direkt eintragen <span class="muted">(optional)</span>', `
+        <div class="group">
+          ${amountRow('rev', LABELS.rev, null, { placeholder: 'optional', ic: 'inArrow' })}
+          ${amountRow('fee', LABELS.fee, null, { placeholder: 'optional', ic: 'outArrow' })}
+          ${amountRow('travel', LABELS.travel, null, { placeholder: 'optional', ic: 'outArrow' })}
+        </div>
+        <p class="hint">Einnahmen <strong>vor</strong> Abzug der Kosten eintragen – die Kosten werden extra als Ausgabe gebucht. Zählst du auf der Messe jeden Verkauf in der Kasse, lass „Einnahmen“ leer.</p>`) : ''}
       ${!editing ? `
       <div class="group">
         <label class="switch-row"><span><strong>Messe-Modus starten</strong><small>Verkäufe in der Kasse werden automatisch dieser Messe zugeordnet.</small></span>
-          <input type="checkbox" class="switch" data-f="active" ${isTodayDefault ? 'checked' : ''}></label>
+          <input type="checkbox" class="switch" data-f="active" checked></label>
       </div>` : ''}`,
     onRight: () => save(),
   });
@@ -503,6 +534,15 @@ export function openEventForm(event = null, { onSaved = null, simple = false } =
   const dateIn = body.querySelector('[data-f="date"]');
   const activeIn = body.querySelector('[data-f="active"]');
   if (activeIn) dateIn.addEventListener('change', () => { activeIn.checked = dateIn.value === todayISO(); });
+  body.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-amt]');
+    if (!a) return;
+    const key = a.dataset.amt;
+    openAmountPad({
+      title: LABELS[key], initial: amounts[key], allowEmpty: true,
+      onSet: (c) => { amounts[key] = c || null; setAmountRow(body, key, amounts[key], { placeholder: 'optional' }); },
+    });
+  });
 
   function save() {
     const name = body.querySelector('[data-f="name"]').value.trim();
@@ -518,12 +558,7 @@ export function openEventForm(event = null, { onSaved = null, simple = false } =
       undoToast('Messe gespeichert', undo);
       return true;
     }
-    const val = (f) => { const el = body.querySelector(`[data-f="${f}"]`); return el ? parseMoney(el.value) : null; };
-    const rev = val('rev'), fee = val('fee'), travel = val('travel');
-    for (const [f, x] of [['rev', rev], ['fee', fee], ['travel', travel]]) {
-      const el = body.querySelector(`[data-f="${f}"]`);
-      if (el && el.value.trim() && (x === null || x < 0)) { toast('Ein Betrag wurde nicht erkannt'); el.focus(); return false; }
-    }
+    const { rev, fee, travel } = amounts;
     const ev = { id: uid(), name, date, place, createdAt: Date.now() };
     const now = Date.now();
     const undo = commit((s) => {
@@ -587,31 +622,15 @@ export function openAdjust() {
 // Stückzahl direkt eintippen
 // ------------------------------------------------------------------
 export function openQtyPad(product, qty, onSet) {
-  const sheet = openSheet({
-    title: product.name,
-    right: 'Übernehmen',
-    cls: 'sheet-keypad sheet-short',
-    foot: '',
-    content: `
-      <div class="amount-display" data-display>
-        <span class="amount-label">Menge</span>
-        <span class="amount-value"><span data-amt>${qty || 0}</span> Stück</span>
-        <span class="amount-hint" data-hint></span>
-      </div>`,
-    onRight: () => { onSet(kp.getInt() || 0); return true; },
-  });
-  const kp = createKeypad({
-    integer: true, initial: qty || null, maxInt: 4,
-    onChange: () => {
-      sheet.body.querySelector('[data-amt]').textContent = kp.display();
-      const n = kp.getInt() || 0;
+  openAmountPad({
+    title: product.name, label: 'Menge', integer: true, initial: qty || null, allowEmpty: true, confirm: 'Übernehmen',
+    hint: (n) => {
+      if (!n) return '';
       const p = getProduct(product.id) || product;
-      const unit = unitPriceFor(p, n);
-      sheet.body.querySelector('[data-hint]').textContent = n ? `${money(unit * n)}${p.stock != null && n > p.stock ? ` · nur ${p.stock} im Bestand` : ''}` : '';
+      return `${money(unitPriceFor(p, n) * n)}${p.stock != null && n > p.stock ? ` · nur ${p.stock} im Bestand` : ''}`;
     },
+    onSet: (n) => onSet(n || 0),
   });
-  sheet.foot.appendChild(kp.el);
-  kp.set(qty || null);
 }
 
 export async function newEntryMenu() {

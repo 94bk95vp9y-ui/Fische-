@@ -44,7 +44,7 @@ export function artikelView(el) {
         <button type="button" class="card import-card" data-action="ai">
           <span class="import-ic">${icon('paste')}</span>
           <span class="rmain"><span class="rtitle">Aus Anzeige übernehmen</span>
-          <span class="rsub">Prompt kopieren, mit Screenshots in ChatGPT & Co. geben, Antwort hier einfügen – Name, Preis, Staffeln werden übernommen.</span></span>
+          <span class="rsub">Name, Preis & Mengenrabatt per KI aus deiner Kleinanzeigen-Anzeige</span></span>
           ${icon('chevR', 'chev')}
         </button>
         ${all.length ? `
