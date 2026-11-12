@@ -1,9 +1,8 @@
-import { store, commit, activeProducts, activeEvent, getProduct } from '../store.js';
-import { money, esc, plural } from '../util.js';
-import { icon } from '../icons.js';
-import { thumb, chips, empty } from '../components.js';
-import { PRODUCT_CATS } from '../model.js';
-import { unitPriceFor, sortedTiers } from '../model.js';
+import { commit, activeProducts, activeEvent, getProduct } from '../store.js';
+import { money, esc } from '../util.js';
+import { icon, CAT_GLYPH } from '../icons.js';
+import { thumb, empty } from '../components.js';
+import { PRODUCT_CATS, unitPriceFor, sortedTiers } from '../model.js';
 import { openCheckout, openEntryForm, openQtyPad } from '../sheets.js';
 import { openProductEditor, openAiImport } from '../products.js';
 import { go } from '../nav.js';
@@ -32,6 +31,12 @@ function lines() {
   return out;
 }
 
+function stockBadge(p) {
+  if (p.stock == null) return '';
+  if (p.stock <= 0) return '<span class="tile-stock none">ausverkauft</span>';
+  return `<span class="tile-stock ${p.stock <= 3 ? 'low' : ''}">${p.stock} da</span>`;
+}
+
 export function kasseView(el, _params, { onCartChange } = {}) {
   function cleanCart() {
     const ids = new Set(activeProducts().map((p) => p.id));
@@ -43,19 +48,22 @@ export function kasseView(el, _params, { onCartChange } = {}) {
   function tileHtml(p) {
     const qty = cart[p.id] || 0;
     const tiers = sortedTiers(p.tiers);
-    const lowStock = p.stock != null && qty > p.stock;
-    return `<div class="tile ${qty ? 'on' : ''} ${lowStock ? 'over' : ''}" data-pid="${esc(p.id)}">
-      <button type="button" class="tile-main" data-add="${esc(p.id)}" aria-label="${esc(p.name)} hinzufügen">
-        ${thumb(p, 'tile-img')}
+    const unit = unitPriceFor(p, Math.max(1, qty));
+    const id = esc(p.id);
+    return `<div class="tile ${qty ? 'on' : ''} ${p.stock != null && qty > p.stock ? 'over' : ''} ${p.stock != null && p.stock <= 0 ? 'out' : ''}" data-pid="${id}">
+      <div class="tile-media">
+        <button type="button" class="tile-hit" data-add="${id}" aria-label="${esc(p.name)}, ${esc(money(p.price))} – hinzufügen">${thumb(p, 'tile-img')}</button>
+        ${stockBadge(p)}
         <span class="tile-qty" aria-hidden="true">${qty || ''}</span>
+        <div class="tile-step">
+          <button type="button" data-dec="${id}" aria-label="eins weniger">${icon('minus')}</button>
+          <button type="button" class="tile-count" data-qty="${id}" aria-label="Menge eingeben">${qty}</button>
+          <button type="button" data-add="${id}" aria-label="eins mehr">${icon('plus')}</button>
+        </div>
+      </div>
+      <div class="tile-info" data-add="${id}">
         <span class="tile-name">${esc(p.name)}</span>
-        <span class="tile-price">${money(unitPriceFor(p, Math.max(1, qty)))}${tiers.length ? `<small>ab ${tiers[0].min}: ${money(tiers[0].price)}</small>` : ''}</span>
-        ${p.stock != null ? `<span class="tile-stock">${p.stock > 0 ? `${p.stock} da` : 'ausverkauft'}</span>` : ''}
-      </button>
-      <div class="tile-step">
-        <button type="button" data-dec="${esc(p.id)}" aria-label="eins weniger">${icon('minus')}</button>
-        <button type="button" class="tile-count" data-qty="${esc(p.id)}" aria-label="Menge eingeben">${qty}</button>
-        <button type="button" data-add="${esc(p.id)}" aria-label="eins mehr">${icon('plus')}</button>
+        <span class="tile-price ${unit !== p.price ? 'staffel' : ''}"><b>${money(unit)}</b>${tiers.length ? `<small>ab ${tiers[0].min}: ${money(tiers[0].price)}</small>` : ''}</span>
       </div>
     </div>`;
   }
@@ -70,6 +78,11 @@ export function kasseView(el, _params, { onCartChange } = {}) {
     return list;
   }
 
+  function catChips(cats) {
+    const chip = (value, label, ic) => `<button type="button" class="chip ${value === cat ? 'on' : ''}" aria-pressed="${value === cat}" data-value="${esc(value)}">${ic ? icon(ic) : ''}${esc(label)}</button>`;
+    return `<div class="chips scroll" data-chips="cat">${chip('all', 'Alle', '')}${cats.map((c) => chip(c, (PRODUCT_CATS[c] || PRODUCT_CATS.sonstiges).plural, CAT_GLYPH[c] || 'box')).join('')}</div>`;
+  }
+
   function render() {
     cleanCart();
     const all = activeProducts();
@@ -81,20 +94,24 @@ export function kasseView(el, _params, { onCartChange } = {}) {
     el.innerHTML = `
       <header class="lt">
         <div><h1>Kasse</h1></div>
-        <div class="lt-actions">${cartCount() ? `<button type="button" class="nav-btn" data-action="clear">Leeren</button>` : ''}</div>
+        <div class="lt-actions">
+          <button type="button" class="nav-btn" data-action="clear" ${cartCount() ? '' : 'hidden'}>Leeren</button>
+          <button type="button" class="nav-btn" data-action="manual" ${cartCount() ? 'hidden' : ''}>${icon('euro')}Nur Betrag</button>
+          ${all.length ? `<button type="button" class="nav-btn icon" data-action="manage" aria-label="Artikel verwalten">${icon('sliders')}</button>` : ''}
+        </div>
       </header>
       <div class="content kasse">
         ${ev ? `<div class="banner accent">${icon('stall')}<span><strong>Messe-Modus:</strong> ${esc(ev.name)} – Verkäufe werden der Messe zugeordnet.</span>
           <button type="button" class="banner-link" data-action="end-messe">Beenden</button></div>` : ''}
         ${all.length ? `
-          ${all.length > 8 ? `<label class="search">${icon('search')}<input type="search" placeholder="Artikel suchen" value="${esc(query)}" data-search autocomplete="off" enterkeyhint="search"></label>` : ''}
-          ${cats.length > 1 ? chips('cat', [{ value: 'all', label: 'Alle' }, ...cats.map((c) => ({ value: c, label: (PRODUCT_CATS[c] || PRODUCT_CATS.sonstiges).plural }))], cat, 'scroll') : ''}
+          ${all.length > 8 ? `<label class="search">${icon('search')}<input type="search" placeholder="Artikel suchen" value="${esc(query)}" data-search autocomplete="off" enterkeyhint="search" aria-label="Artikel suchen"></label>` : ''}
+          ${cats.length > 1 ? catChips(cats) : ''}
           <div class="tiles" data-tiles>${list.map(tileHtml).join('') || '<p class="card-note">Keine Treffer.</p>'}</div>
-          <p class="kasse-tip">Antippen = +1 · Zahl antippen = Menge eintippen</p>
+          <p class="kasse-tip">Antippen = +1 · Zahl antippen = Menge eintippen<br>Verkauf ohne Artikel: oben „Nur Betrag“</p>
         ` : empty('Noch keine Artikel', 'Lege an, was du verkaufst – mit Stückpreis und Foto. Dann tippst du hier einfach an, was der Kunde mitnimmt.',
           `<div class="btn-row center"><button type="button" class="btn primary" data-action="new-product">${icon('plus')}Artikel anlegen</button><button type="button" class="btn" data-action="ai-import">Aus Anzeige</button></div>`)}
       </div>
-      <div class="kbar" data-kbar></div>`;
+      <div class="dock" data-dock></div>`;
     updateBar();
   }
 
@@ -107,29 +124,30 @@ export function kasseView(el, _params, { onCartChange } = {}) {
       t.classList.toggle('over', p.stock != null && qty > p.stock);
       t.querySelector('.tile-qty').textContent = qty || '';
       t.querySelector('.tile-count').textContent = qty;
-      const price = t.querySelector('.tile-price');
       const unit = unitPriceFor(p, Math.max(1, qty));
-      price.firstChild.nodeValue = money(unit);
+      const price = t.querySelector('.tile-price');
+      price.classList.toggle('staffel', unit !== p.price);
+      price.querySelector('b').textContent = money(unit);
     });
   }
 
   function updateBar() {
-    const bar = el.querySelector('[data-kbar]');
+    const bar = el.querySelector('[data-dock]');
     if (!bar) return;
     const ls = lines();
     const n = ls.reduce((a, l) => a + l.qty, 0);
     const total = ls.reduce((a, l) => a + l.total, 0);
-    if (!n) {
-      bar.innerHTML = `<div class="kbar-info"><span class="kbar-count">Noch leer</span><span class="kbar-hint">Artikel antippen oder:</span></div>
-        <button type="button" class="btn" data-action="manual">${icon('note')}Nur Betrag</button>`;
-    } else {
-      bar.innerHTML = `<div class="kbar-info"><span class="kbar-count">${plural(n, 'Stück', 'Stück')}</span><span class="kbar-total">${money(total)}</span></div>
-        <button type="button" class="btn primary" data-action="checkout">Weiter ${icon('chevR')}</button>`;
+    // Leerer Warenkorb: Leiste ausblenden, damit die Kacheln frei bleiben
+    bar.classList.toggle('show', n > 0);
+    if (n) {
+      bar.innerHTML = `<div class="dock-info"><span class="dock-count">${n} Stück${ls.length > 1 ? ` · ${ls.length} Sorten` : ''}</span><span class="dock-total">${money(total)}</span></div>
+        <button type="button" class="btn primary" data-action="checkout">Kassieren${icon('arrowR')}</button>`;
     }
+    document.body.classList.toggle('has-cart', n > 0);
     const clear = el.querySelector('[data-action="clear"]');
-    const actions = el.querySelector('.lt-actions');
-    if (!n && clear) clear.remove();
-    if (n && !clear && actions) actions.innerHTML = `<button type="button" class="nav-btn" data-action="clear">Leeren</button>`;
+    if (clear) clear.hidden = !n;
+    const manual = el.querySelector('.lt-actions [data-action="manual"]');
+    if (manual) manual.hidden = n > 0;
     onCartChange && onCartChange(n);
   }
 
@@ -147,18 +165,19 @@ export function kasseView(el, _params, { onCartChange } = {}) {
   }
 
   el.onclick = (e) => {
-    const add = e.target.closest('[data-add]');
-    if (add) { const id = add.dataset.add; setQty(id, (cart[id] || 0) + 1); bump(id); return; }
     const dec = e.target.closest('[data-dec]');
     if (dec) { const id = dec.dataset.dec; setQty(id, (cart[id] || 0) - 1); return; }
     const q = e.target.closest('[data-qty]');
     if (q) { const p = getProduct(q.dataset.qty); if (p) openQtyPad(p, cart[p.id] || 0, (n) => setQty(p.id, n)); return; }
+    const add = e.target.closest('[data-add]');
+    if (add) { const id = add.dataset.add; setQty(id, (cart[id] || 0) + 1); bump(id); return; }
     const c = e.target.closest('[data-chips="cat"] [data-value]');
     if (c) { cat = c.dataset.value; render(); return; }
     const a = e.target.closest('[data-action]');
     if (!a) return;
     switch (a.dataset.action) {
       case 'clear': cart = {}; saveCart(); updateTiles(); updateBar(); break;
+      case 'manage': go('artikel'); break;
       case 'manual': openEntryForm({ type: 'sale' }); break;
       case 'new-product': openProductEditor(null); break;
       case 'ai-import': openAiImport(); break;
@@ -185,5 +204,3 @@ export function kasseView(el, _params, { onCartChange } = {}) {
   };
   return { render };
 }
-
-export function goKasse() { go('kasse'); }

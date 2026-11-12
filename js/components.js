@@ -13,7 +13,7 @@ export function thumb(p, cls = '') {
   return `<span class="thumb glyph cat-${esc(cat)} ${cls}">${icon(CAT_GLYPH[cat] || 'box')}</span>`;
 }
 
-const TYPE_ICON = { sale: 'inArrow', expense: 'outArrow', withdrawal: 'person', deposit: 'plusCircle', adjust: 'scale' };
+const TYPE_ICON = { sale: 'arrowDown', expense: 'arrowUp', withdrawal: 'person', deposit: 'plusCircle', adjust: 'scale' };
 
 export function amountHtml(e) {
   if (e.status === 'open') return `<span class="ramt muted">${money(e.amount)}</span>`;
@@ -49,7 +49,7 @@ export function entryRow(e, opts = {}) {
       <span class="rtitle">${esc(entryTitle(e, store.state.events))}${e.status === 'open' ? ' <em class="pill">offen</em>' : ''}</span>
       <span class="rsub">${entrySub(e, opts)}</span>
     </span>
-    ${amountHtml(e)}
+    ${opts.hideAmount ? '' : amountHtml(e)}
   </button>`;
 }
 
@@ -102,8 +102,16 @@ export function setAmountRow(root, key, value, opts = {}) {
   el.classList.toggle('empty', value == null);
 }
 
-export function empty(title, text, actionsHtml = '') {
-  return `<div class="empty"><strong>${esc(title)}</strong><p>${esc(text)}</p>${actionsHtml}</div>`;
+export function empty(title, text, actionsHtml = '', ic = 'fish') {
+  return `<div class="empty"><span class="empty-art">${icon(ic)}</span><strong>${esc(title)}</strong><p>${esc(text)}</p>${actionsHtml}</div>`;
+}
+
+/** Betrag mit kleiner gesetzten Cent: "701" + ",14 €" */
+export function moneyParts(cents) {
+  const s = money(cents);
+  const i = s.lastIndexOf(',');
+  if (i < 0) return esc(s);
+  return `<span class="m-int">${esc(s.slice(0, i))}</span><span class="m-frac">${esc(s.slice(i))}</span>`;
 }
 
 export function productPriceLine(p) {
@@ -133,9 +141,6 @@ export function monthChart(data, selected, { mini = false } = {}) {
   const sel = data.find((d) => d.key === selected) || data[data.length - 1];
   const label = (d) => `${monthLabel(d.key)}: Umsatz ${money(d.revenue)}, Ausgaben ${money(d.expenses)}`;
   return `<div class="chart ${data.length > 8 ? 'many' : ''}" data-chart>
-    <div class="chart-top">
-      <div class="legend"><span><i class="lkey a"></i>Umsatz</span><span><i class="lkey b"></i>Ausgaben</span></div>
-    </div>
     <div class="chart-readout" data-readout aria-live="polite">${readout(sel)}</div>
     <div class="chart-plot">
       <div class="chart-grid" aria-hidden="true">
@@ -177,9 +182,9 @@ export function bindChart(root, onOpen) {
 }
 
 /** Rangliste mit dünnen Balken (eine Farbe) */
-export function rankBars(rows, { valueFmt = (v) => money(v), sub = null } = {}) {
+export function rankBars(rows, { valueFmt = (v) => money(v), sub = null, cls = '' } = {}) {
   const max = Math.max(1, ...rows.map((r) => r.value));
-  return `<div class="ranks">${rows.map((r) => `
+  return `<div class="ranks ${cls}">${rows.map((r) => `
     <div class="rank">
       <div class="rank-top"><span class="rank-name">${esc(r.label)}</span><span class="rank-val">${valueFmt(r.value)}</span></div>
       <div class="rank-track"><span style="width:${Math.max(r.value > 0 ? 2 : 0, (r.value / max) * 100)}%"></span></div>
@@ -188,7 +193,7 @@ export function rankBars(rows, { valueFmt = (v) => money(v), sub = null } = {}) 
 }
 
 export function statTile(label, value, cls = '', sub = '') {
-  return `<div class="stat ${cls}"><span class="stat-label">${esc(label)}</span><span class="stat-value">${value}</span>${sub ? `<span class="stat-sub">${sub}</span>` : ''}</div>`;
+  return `<div class="stat ${cls}"><span class="stat-label">${label}</span><span class="stat-value">${value}</span>${sub ? `<span class="stat-sub">${sub}</span>` : ''}</div>`;
 }
 
 export function navBar(title, backLabel, actions = '') {
@@ -200,3 +205,11 @@ export function navBar(title, backLabel, actions = '') {
 }
 
 export const dateChip = (iso) => esc(fmtDate(iso));
+
+/** Anteile als ein geteilter Balken mit Legende. rows: [{label, value}] (max. 3 Farben) */
+export function shareBar(rows, total) {
+  const keys = ['a', 'b', 'c'];
+  const pct = (v) => (total > 0 ? Math.round((v / total) * 100) : 0);
+  return `<div class="share-bar" aria-hidden="true">${rows.map((r, i) => `<span class="${keys[i % 3]}" style="flex:${Math.max(1, r.value)}"></span>`).join('')}</div>
+    <div class="share-legend">${rows.map((r, i) => `<div><i class="dot ${keys[i % 3]}"></i><span>${esc(r.label)}</span><strong>${money(r.value)}</strong><em>${pct(r.value)} %</em></div>`).join('')}</div>`;
+}

@@ -204,6 +204,7 @@ export function openEntryDetail(id) {
     title: ENTRY_TYPES[e.type].label,
     left: 'Schließen',
     right: e.type === 'adjust' ? null : 'Bearbeiten',
+    rightPlain: true,
     onLeft: (s) => s.close(),
     onRight: () => {
       setTimeout(() => (e.items && e.items.length ? openSaleEdit(e.id) : openEntryForm({ entry: e })), 50);
@@ -518,9 +519,9 @@ export function openEventForm(event = null, { onSaved = null, simple = false } =
       </div>
       ${!editing && !simple ? sec('Beträge direkt eintragen <span class="muted">(optional)</span>', `
         <div class="group">
-          ${amountRow('rev', LABELS.rev, null, { placeholder: 'optional', ic: 'inArrow' })}
-          ${amountRow('fee', LABELS.fee, null, { placeholder: 'optional', ic: 'outArrow' })}
-          ${amountRow('travel', LABELS.travel, null, { placeholder: 'optional', ic: 'outArrow' })}
+          ${amountRow('rev', LABELS.rev, null, { placeholder: 'optional', ic: 'arrowDown' })}
+          ${amountRow('fee', LABELS.fee, null, { placeholder: 'optional', ic: 'arrowUp' })}
+          ${amountRow('travel', LABELS.travel, null, { placeholder: 'optional', ic: 'arrowUp' })}
         </div>
         <p class="hint">Einnahmen <strong>vor</strong> Abzug der Kosten eintragen – die Kosten werden extra als Ausgabe gebucht. Zählst du auf der Messe jeden Verkauf in der Kasse, lass „Einnahmen“ leer.</p>`) : ''}
       ${!editing ? `
@@ -637,8 +638,8 @@ export async function newEntryMenu() {
   const r = await actionSheet({
     actions: [
       { label: 'Verkauf zählen (Kasse)', value: 'kasse', icon: 'basket' },
-      { label: 'Betrag schnell erfassen', value: 'sale', icon: 'inArrow' },
-      { label: 'Ausgabe', value: 'expense', icon: 'outArrow' },
+      { label: 'Einnahme ohne Artikel', value: 'sale', icon: 'arrowDown' },
+      { label: 'Ausgabe', value: 'expense', icon: 'arrowUp' },
       { label: 'Privatentnahme', value: 'withdrawal', icon: 'person' },
       { label: 'Einlage', value: 'deposit', icon: 'plusCircle' },
       { label: 'Messe / Börse', value: 'messe', icon: 'stall' },
