@@ -1,7 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><rect width="1024" height="1024" fill="#C8501A"/>
-  <g transform="translate(512 512) scale(1) translate(-512 -512)">
-    <path d="M840 512C768 398 660 344 548 344 428 344 336 414 292 512 336 610 428 680 548 680 660 680 768 626 840 512Z" fill="#FFF3E8"/>
-    <path d="M306 512 168 392C196 466 196 558 168 632Z" fill="#FFF3E8" stroke="#FFF3E8" stroke-width="18" stroke-linejoin="round"/>
-    <path d="M610 372C646 446 646 578 610 652" fill="none" stroke="#C8501A" stroke-width="22" stroke-linecap="round"/>
-    <circle cx="718" cy="478" r="27" fill="#C8501A"/>
-  </g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#15909a"/><stop offset=".55" stop-color="#0d626b"/><stop offset="1" stop-color="#06343b"/></linearGradient>
+    <radialGradient id="l" cx=".82" cy="0" r=".9"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset=".6" stop-color="#fff" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#w)"/>
+  <rect width="1024" height="1024" fill="url(#l)"/>
+  <path d="M0 0H1024V236Q896 180 768 236T512 236T256 236T0 236Z" fill="#7fd0d1" opacity=".55"/>
+  <g fill="#ff6a42">
+    <path d="M816 560C750 456 652 406 550 406 440 406 356 470 316 560 356 650 440 714 550 714 652 714 750 664 816 560Z"/>
+    <path d="M336 560 204 446C232 518 232 602 204 674Z" stroke="#ff6a42" stroke-width="18" stroke-linejoin="round"/>
+  </g>
+  <path d="M608 434C640 500 640 620 608 686" fill="none" stroke="#0a4f58" stroke-width="20" stroke-linecap="round" opacity=".55"/>
+  <circle cx="706" cy="530" r="25" fill="#06343b"/>
+  <g fill="none" stroke="#fff" stroke-width="12" opacity=".7">
+    <circle cx="842" cy="408" r="24"/><circle cx="888" cy="338" r="15"/>
+  </g>
+</svg>

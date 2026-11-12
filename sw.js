@@ -1,7 +1,7 @@
 // Service Worker: App funktioniert offline.
 // Strategie "stale-while-revalidate": sofort aus dem Cache, im Hintergrund aktualisieren.
 // Neue Versionen sind damit spätestens beim übernächsten Start aktiv – auch ohne Versionssprung.
-const CACHE = 'fischkasse-v2';
+const CACHE = 'fischkasse-v3';
 const ASSETS = [
   './',
   './index.html',

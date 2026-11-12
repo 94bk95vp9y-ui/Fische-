@@ -33,7 +33,7 @@ export const isLocked = () => openCount > 0;
 
 /**
  * Modales Blatt von unten (wie bei iOS).
- * opts: { title, left, right, onRight, onClose, content(html), foot(html), dirty(), cls }
+ * opts: { title, left, right, rightPlain, onRight, onClose, content(html), foot(html), dirty(), cls }
  * onRight darf false zurückgeben, um offen zu bleiben.
  */
 export function openSheet(opts) {
@@ -47,7 +47,7 @@ export function openSheet(opts) {
         <span class="grabber" aria-hidden="true"></span>
         <button type="button" class="sheet-btn sheet-left">${esc(opts.left ?? 'Abbrechen')}</button>
         <h2 class="sheet-title">${esc(opts.title || '')}</h2>
-        ${opts.right ? `<button type="button" class="sheet-btn sheet-right">${esc(opts.right)}</button>` : '<span class="sheet-btn-spacer"></span>'}
+        ${opts.right ? `<button type="button" class="sheet-btn sheet-right ${opts.rightPlain ? 'plain' : ''}">${esc(opts.right)}</button>` : '<span class="sheet-btn-spacer"></span>'}
       </header>
       <div class="sheet-body">${opts.content || ''}</div>
       ${opts.foot !== undefined ? `<div class="sheet-foot">${opts.foot}</div>` : ''}

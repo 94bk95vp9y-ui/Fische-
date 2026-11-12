@@ -1,7 +1,8 @@
 import { commit, sortedProducts, productRanking } from '../store.js';
 import { esc, money } from '../util.js';
 import { icon } from '../icons.js';
-import { thumb, catLabel, empty } from '../components.js';
+import { thumb, catLabel, empty, navBar } from '../components.js';
+import { back } from '../nav.js';
 import { openProductEditor, openAiImport } from '../products.js';
 import { actionSheet } from '../ui.js';
 
@@ -33,13 +34,9 @@ export function artikelView(el) {
     const inactive = all.filter((p) => !p.active);
     const soldCount = new Map(productRanking().map((r) => [r.pid, r.qty]));
     el.innerHTML = `
-      <header class="lt">
-        <div><h1>Artikel</h1></div>
-        <div class="lt-actions">
-          ${all.length > 1 ? `<button type="button" class="nav-btn" data-action="sort">${sorting ? 'Fertig' : 'Sortieren'}</button>` : ''}
-          <button type="button" class="nav-btn icon" data-action="add" aria-label="Artikel hinzufügen">${icon('plus')}</button>
-        </div>
-      </header>
+      ${navBar('Artikel & Preise', 'Zurück', `${all.length > 1 ? `<button type="button" class="nav-btn" data-action="sort">${sorting ? 'Fertig' : 'Sortieren'}</button>` : ''}
+          <button type="button" class="nav-btn icon solid" data-action="add" aria-label="Artikel hinzufügen">${icon('plus')}</button>`)}
+      <header class="lt compact"><div><h1>Artikel & Preise</h1></div></header>
       <div class="content">
         <button type="button" class="card import-card" data-action="ai">
           <span class="import-ic">${icon('paste')}</span>
@@ -48,9 +45,9 @@ export function artikelView(el) {
           ${icon('chevR', 'chev')}
         </button>
         ${all.length ? `
-          ${sorting ? '<p class="card-note">Reihenfolge = Reihenfolge der Kacheln in der Kasse.</p>' : ''}
+          ${sorting ? '<p class="hint">Reihenfolge = Reihenfolge der Kacheln in der Kasse.</p>' : ''}
           <section class="month-block"><div class="month-head"><h2>In der Kasse</h2><span>${active.length}</span></div>
-            <div class="card list">${active.map((p) => row(p, active, soldCount)).join('') || '<p class="card-note">Alle Artikel sind archiviert.</p>'}</div>
+            <div class="card list">${active.map((p) => row(p, active, soldCount)).join('') || '<p class="card-note pad">Alle Artikel sind archiviert.</p>'}</div>
           </section>
           ${inactive.length ? `<section class="month-block"><div class="month-head"><h2>Archiviert</h2><span>${inactive.length}</span></div>
             <div class="card list">${inactive.map((p) => row(p, inactive, soldCount)).join('')}</div></section>` : ''}
@@ -68,6 +65,7 @@ export function artikelView(el) {
     const a = e.target.closest('[data-action]');
     if (!a) return;
     switch (a.dataset.action) {
+      case 'back': back('mehr'); break;
       case 'sort': sorting = !sorting; render(); break;
       case 'new': openProductEditor(null); break;
       case 'ai': openAiImport(); break;

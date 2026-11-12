@@ -2,16 +2,19 @@ import { store, commit, replaceState, emptyState, activeEvent } from '../store.j
 import { esc, fmtDateTime, isStandalone } from '../util.js';
 import { icon } from '../icons.js';
 import { CHANNELS, CHANNEL_KEYS } from '../model.js';
+import { seg } from '../components.js';
 import { openAdjust, openEntryForm } from '../sheets.js';
 import { openSheet, actionSheet, undoToast } from '../ui.js';
 import { exportBackup, importBackup, exportCsv, backupAgeDays } from '../backup.js';
 import { go } from '../nav.js';
 
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '2.0.0';
 
-const item = (action, ic, label, value = '', cls = '') =>
+const THEMES = [{ value: 'auto', label: 'Automatisch' }, { value: 'light', label: 'Hell' }, { value: 'dark', label: 'Dunkel' }];
+
+const item = (action, ic, label, value = '', cls = '', tone = 'c-brand') =>
   `<button type="button" class="row nav-row ${cls}" data-action="${action}">
-    <span class="ricon plain">${icon(ic)}</span><span class="rmain"><span class="rtitle">${esc(label)}</span></span>
+    <span class="ricon ${tone}">${icon(ic)}</span><span class="rmain"><span class="rtitle">${esc(label)}</span></span>
     ${value ? `<span class="row-value">${value}</span>` : ''}${icon('chevR', 'chev')}</button>`;
 
 export function mehrView(el) {
@@ -19,21 +22,28 @@ export function mehrView(el) {
     const s = store.state;
     const age = backupAgeDays();
     const ev = activeEvent();
+    const nProd = s.products.filter((p) => p.active).length;
     el.innerHTML = `
       <header class="lt"><div><h1>Mehr</h1></div></header>
       <div class="content">
-        <section class="month-block"><div class="month-head"><h2>Auswertung</h2></div>
-          <div class="card list">
-            ${item('stats', 'chart', 'Statistik nach Monaten')}
-            ${item('messen', 'stall', 'Messen & Börsen', ev ? '<em class="pill accent">aktiv</em>' : String(s.events.length || ''))}
-          </div>
-        </section>
+        <div class="features">
+          <button type="button" class="feature" data-action="artikel">
+            <span class="ricon c-brand">${icon('fish')}</span>
+            <strong>Artikel & Preise</strong>
+            <span>${nProd ? `${nProd} in der Kasse` : 'Noch keine angelegt'}</span>
+          </button>
+          <button type="button" class="feature" data-action="messen">
+            <span class="ricon c-accent">${icon('stall')}</span>
+            <strong>Messen & Börsen</strong>
+            <span>${ev ? `<em class="pill accent">Messe-Modus aktiv</em>` : s.events.length ? `${s.events.length} angelegt` : 'Noch keine angelegt'}</span>
+          </button>
+        </div>
         <section class="month-block"><div class="month-head"><h2>Kasse</h2></div>
           <div class="card list">
             ${item('adjust', 'scale', 'Mit echtem Geld abgleichen')}
-            ${item('deposit', 'plusCircle', 'Einlage / Startbetrag')}
-            ${item('withdrawal', 'person', 'Privatentnahme')}
-            <label class="row nav-row select-row"><span class="ricon plain">${icon('tag')}</span><span class="rmain"><span class="rtitle">Standard-Verkaufsweg</span></span>
+            ${item('deposit', 'arrowDown', 'Einlage / Startbetrag', '', '', 'c-pos')}
+            ${item('withdrawal', 'person', 'Privatentnahme', '', '', 'c-sand')}
+            <label class="row nav-row select-row"><span class="ricon c-brand">${icon('tag')}</span><span class="rmain"><span class="rtitle">Üblicher Verkaufsweg</span></span>
               <select class="in inline" data-setting="defaultChannel">${CHANNEL_KEYS.map((k) => `<option value="${k}" ${s.settings.defaultChannel === k ? 'selected' : ''}>${esc(CHANNELS[k].short)}</option>`).join('')}</select></label>
           </div>
         </section>
@@ -43,7 +53,10 @@ export function mehrView(el) {
             ${item('restore', 'import', 'Backup laden')}
             ${item('csv', 'file', 'Als Tabelle exportieren (CSV)')}
           </div>
-          <p class="card-note">Alle Daten liegen nur auf diesem Gerät – es gibt keine Cloud. Speichere regelmäßig ein Backup in der Dateien-App oder iCloud Drive. Das Backup enthält auch die Fotos.</p>
+          <p class="hint">Alle Daten liegen nur auf diesem Gerät – es gibt keine Cloud. Speichere regelmäßig ein Backup in der Dateien-App oder iCloud Drive. Das Backup enthält auch die Fotos.</p>
+        </section>
+        <section class="month-block"><div class="month-head"><h2>Darstellung</h2></div>
+          ${seg('theme', THEMES, s.settings.theme || 'auto')}
         </section>
         <section class="month-block"><div class="month-head"><h2>Hilfe</h2></div>
           <div class="card list">
@@ -52,8 +65,8 @@ export function mehrView(el) {
           </div>
         </section>
         <section class="month-block">
-          <div class="card list">${item('reset', 'trash', 'Alle Daten löschen', '', 'danger')}</div>
-          <p class="card-note center">Fischkasse ${APP_VERSION}${s.savedAt ? ` · zuletzt gespeichert ${esc(fmtDateTime(s.savedAt))}` : ''}</p>
+          <div class="card list">${item('reset', 'trash', 'Alle Daten löschen', '', 'danger', 'c-neg')}</div>
+          <p class="hint center">Fischkasse ${APP_VERSION}${s.savedAt ? ` · zuletzt gespeichert ${esc(fmtDateTime(s.savedAt))}` : ''}</p>
         </section>
       </div>`;
   }
@@ -62,10 +75,12 @@ export function mehrView(el) {
     if (sel) commit((s) => { s.settings[sel.dataset.setting] = sel.value; });
   };
   el.onclick = async (e) => {
+    const th = e.target.closest('[data-seg="theme"] [data-value]');
+    if (th) { commit((s) => { s.settings.theme = th.dataset.value; }); return; }
     const a = e.target.closest('[data-action]');
     if (!a) return;
     switch (a.dataset.action) {
-      case 'stats': go('statistik'); break;
+      case 'artikel': go('artikel'); break;
       case 'messen': go('messen'); break;
       case 'adjust': openAdjust(); break;
       case 'deposit': openEntryForm({ type: 'deposit' }); break;

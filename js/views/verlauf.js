@@ -38,7 +38,7 @@ export function verlaufView(el) {
     el.innerHTML = `
       <header class="lt">
         <div><h1>Verlauf</h1></div>
-        <div class="lt-actions"><button type="button" class="nav-btn icon" data-action="new" aria-label="Neuer Eintrag">${icon('plus')}</button></div>
+        <div class="lt-actions"><button type="button" class="nav-btn solid" data-action="new">${icon('plus')}Eintrag</button></div>
       </header>
       <div class="content">
         <label class="search">${icon('search')}<input type="search" placeholder="Suchen: Artikel, Notiz, Betrag …" value="${esc(query)}" data-search autocomplete="off" enterkeyhint="search"></label>
@@ -68,7 +68,7 @@ export function verlaufView(el) {
     const all = sortedEntries(store.state.entries.filter(matches));
     if (!store.state.entries.length) {
       list.innerHTML = empty('Noch keine Einträge', 'Verkäufe, Ausgaben und Entnahmen erscheinen hier – nach Monaten sortiert.',
-        `<button type="button" class="btn primary" data-action="new">${icon('plus')}Eintrag hinzufügen</button>`);
+        `<button type="button" class="btn primary" data-action="new">${icon('plus')}Eintrag hinzufügen</button>`, 'receipt');
       return;
     }
     if (!all.length) { list.innerHTML = '<p class="card-note center">Nichts gefunden.</p>'; return; }
@@ -80,8 +80,8 @@ export function verlaufView(el) {
       if (k !== cur) {
         if (cur) html += '</div></section>';
         const m = getMonth(k);
-        html += `<section class="month-block"><div class="month-head stacked"><h2>${esc(monthLabel(k))}</h2>
-          <span>Umsatz ${money(m.revenue)} · Ausgaben ${money(m.expenses)}</span></div><div class="card list">`;
+        html += `<section class="month-block"><div class="month-head sticky"><h2>${esc(monthLabel(k))}</h2>
+          <span class="sum"><span class="pos">${money(m.revenue, { sign: true })}</span>${m.expenses ? `<span class="neg">${money(-m.expenses)}</span>` : ''}</span></div><div class="card list">`;
         cur = k;
       }
       html += entryRow(e);

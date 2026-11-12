@@ -11,22 +11,23 @@ import { mehrView } from './views/mehr.js';
 import { statsView, monthView } from './views/stats.js';
 import { messenView, messeView } from './views/messen.js';
 
+// Die Kasse ist die Hauptaufgabe der App und sitzt als großer Knopf in der Mitte.
 const TABS = [
-  { id: 'home', path: '', label: 'Übersicht', icon: 'home' },
-  { id: 'kasse', path: 'kasse', label: 'Kasse', icon: 'basket' },
-  { id: 'verlauf', path: 'verlauf', label: 'Verlauf', icon: 'list' },
-  { id: 'artikel', path: 'artikel', label: 'Artikel', icon: 'fish' },
-  { id: 'mehr', path: 'mehr', label: 'Mehr', icon: 'more' },
+  { id: 'home', path: '', label: 'Start', icon: 'home' },
+  { id: 'verlauf', path: 'verlauf', label: 'Verlauf', icon: 'receipt' },
+  { id: 'kasse', path: 'kasse', label: 'Kasse', icon: 'basket', main: true },
+  { id: 'stats', path: 'statistik', label: 'Statistik', icon: 'chart' },
+  { id: 'mehr', path: 'mehr', label: 'Mehr', icon: 'grid' },
 ];
 
 const ROUTES = [
   { re: /^$/, view: homeView, tab: 'home' },
   { re: /^kasse$/, view: kasseView, tab: 'kasse' },
   { re: /^verlauf$/, view: verlaufView, tab: 'verlauf' },
-  { re: /^artikel$/, view: artikelView, tab: 'artikel' },
   { re: /^mehr$/, view: mehrView, tab: 'mehr' },
-  { re: /^statistik(?:\/(\d{4}))?$/, view: statsView, tab: 'home', sub: true },
-  { re: /^monat\/(\d{4}-\d{2})$/, view: monthView, tab: 'home', sub: true },
+  { re: /^statistik(?:\/(\d{4}))?$/, view: statsView, tab: 'stats' },
+  { re: /^monat\/(\d{4}-\d{2})$/, view: monthView, tab: 'stats', sub: true },
+  { re: /^artikel$/, view: artikelView, tab: 'mehr', sub: true },
   { re: /^messen$/, view: messenView, tab: 'mehr', sub: true },
   { re: /^messe\/([\w-]+)$/, view: messeView, tab: 'mehr', sub: true },
 ];
@@ -45,7 +46,7 @@ function setBadge(n) {
 function renderTabbar() {
   const bar = document.getElementById('tabbar');
   bar.innerHTML = TABS.map((t) => `
-    <button type="button" class="tab" data-tab="${t.id}" aria-label="${t.label}">
+    <button type="button" class="tab ${t.main ? 'tab-main' : ''}" data-tab="${t.id}" aria-label="${t.label}">
       <span class="tab-ic">${icon(t.icon)}${t.id === 'kasse' ? '<span class="tab-badge" hidden></span>' : ''}</span>
       <span class="tab-label">${t.label}</span>
     </button>`).join('');
@@ -53,7 +54,7 @@ function renderTabbar() {
     const b = e.target.closest('.tab');
     if (!b) return;
     const t = TABS.find((x) => x.id === b.dataset.tab);
-    if (current && current.path === t.path) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    if (current && current.route.tab === t.id && !current.route.sub) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     resetDepth();
     go(t.path, { replace: true });
   });
@@ -73,7 +74,11 @@ function route() {
   ctrl.render();
   viewRoot.replaceChildren(page);
   document.body.dataset.tab = route.tab;
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === route.tab));
+  document.querySelectorAll('.tab').forEach((t) => {
+    const on = t.dataset.tab === route.tab;
+    t.classList.toggle('on', on);
+    if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
+  });
   const y = route.sub ? 0 : scrollMemo.get(path) || 0;
   window.scrollTo(0, y);
   onScroll();
@@ -112,6 +117,20 @@ function trackKeyboard() {
   update();
 }
 
+// Darstellung: automatisch (System), hell oder dunkel. Die Wahl wird zusätzlich im
+// localStorage gemerkt, damit index.html sie schon vor dem Laden der Daten anwenden kann.
+const THEME_BG = { light: '#e8f0ee', dark: '#06181c' };
+function applyTheme() {
+  const t = store.state.settings.theme || 'auto';
+  const root = document.documentElement;
+  if (t === 'light' || t === 'dark') root.dataset.theme = t; else delete root.dataset.theme;
+  try { localStorage.setItem('fk-theme', t); } catch { /* egal */ }
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+    const scheme = /dark/.test(m.media) ? 'dark' : 'light';
+    m.content = THEME_BG[t === 'auto' ? scheme : t];
+  });
+}
+
 async function start() {
   trackKeyboard();
   renderTabbar();
@@ -121,10 +140,11 @@ async function start() {
     console.error(e);
     toast('Daten konnten nicht geladen werden');
   }
+  applyTheme();
   setBadge(cartCount());
   window.addEventListener('hashchange', route);
   window.addEventListener('scroll', onScroll, { passive: true });
-  subscribe(() => { rerender(); setBadge(cartCount()); });
+  subscribe(() => { applyTheme(); rerender(); setBadge(cartCount()); });
   route();
   document.documentElement.classList.add('ready');
   if (store.storage !== 'idb') toast('Hinweis: Eingeschränkter Speicher – bitte regelmäßig Backups machen');

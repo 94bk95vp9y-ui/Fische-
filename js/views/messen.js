@@ -13,7 +13,7 @@ export function messenView(el) {
     const activeId = store.state.settings.activeEventId;
     let sumProfit = 0;
     el.innerHTML = `
-      ${navBar('Messen & Börsen', 'Mehr', `<button type="button" class="nav-btn icon" data-action="new" aria-label="Neue Messe">${icon('plus')}</button>`)}
+      ${navBar('Messen & Börsen', 'Mehr', `<button type="button" class="nav-btn icon solid" data-action="new" aria-label="Neue Messe">${icon('plus')}</button>`)}
       <header class="lt compact"><div><h1>Messen & Börsen</h1></div></header>
       <div class="content">
         ${evs.length ? `<div class="card list">${evs.map((ev) => {
@@ -26,9 +26,9 @@ export function messenView(el) {
             <span class="ramt ${st.profit < 0 ? 'neg' : ''}">${money(st.profit)}<small>Gewinn</small></span>
           </button>`;
         }).join('')}</div>
-        <p class="card-note">Gewinn = Einnahmen der Messe − zugeordnete Kosten (Standgebühr, Fahrt …). Summe aller Messen: <strong>${money(sumProfit)}</strong></p>`
+        <p class="hint">Gewinn = Einnahmen der Messe − zugeordnete Kosten (Standgebühr, Fahrt …). Summe aller Messen: <strong>${money(sumProfit)}</strong></p>`
         : empty('Noch keine Messe', 'Lege eine Messe oder Börse an. Du kannst die Tageseinnahmen direkt eintragen oder vor Ort jeden Verkauf in der Kasse zählen.',
-          `<button type="button" class="btn primary" data-action="new">${icon('plus')}Messe anlegen</button>`)}
+          `<button type="button" class="btn primary" data-action="new">${icon('plus')}Messe anlegen</button>`, 'stall')}
       </div>`;
   }
   el.onclick = (e) => {
@@ -70,11 +70,11 @@ export function messeView(el, params) {
         <button type="button" class="btn ${active ? '' : 'primary'} block" data-action="toggle">
           ${icon(active ? 'stop' : 'play')}${active ? 'Messe-Modus beenden' : 'Messe-Modus starten'}
         </button>
-        <p class="hint">${active ? 'Alle Verkäufe in der Kasse werden gerade dieser Messe zugeordnet.' : 'Im Messe-Modus werden Verkäufe in der Kasse automatisch dieser Messe zugeordnet.'}</p>
+        <p class="hint center">${active ? 'Alle Verkäufe in der Kasse werden gerade dieser Messe zugeordnet.' : 'Im Messe-Modus werden Verkäufe in der Kasse automatisch dieser Messe zugeordnet.'}</p>
 
         <div class="btn-row">
-          <button type="button" class="btn" data-action="add-rev">${icon('inArrow')}Einnahme</button>
-          <button type="button" class="btn" data-action="add-cost">${icon('outArrow')}Kosten</button>
+          <button type="button" class="btn" data-action="add-rev">${icon('arrowDown')}Einnahme</button>
+          <button type="button" class="btn" data-action="add-cost">${icon('arrowUp')}Kosten</button>
           <button type="button" class="btn" data-action="kasse">${icon('basket')}Zur Kasse</button>
         </div>
 
@@ -86,7 +86,7 @@ export function messeView(el, params) {
 
         <section class="month-block">
           <div class="month-head"><h2>Einträge</h2><span>${list.length}</span></div>
-          ${list.length ? `<div class="card list">${list.map((e) => entryRow(e)).join('')}</div>` : '<p class="card-note">Noch nichts zugeordnet.</p>'}
+          ${list.length ? `<div class="card list">${list.map((e) => entryRow(e)).join('')}</div>` : '<p class="hint">Noch nichts zugeordnet.</p>'}
         </section>
 
         <button type="button" class="btn danger block" data-action="delete">${icon('trash')}Messe löschen</button>

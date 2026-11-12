@@ -1,7 +1,7 @@
 import { store, getMonth, yearTotals, monthKeys, productRanking, sortedEntries, getProduct, getTotals } from '../store.js';
 import { esc, money, monthLabel, monthKey, currentMonthKey, pct } from '../util.js';
 import { icon } from '../icons.js';
-import { monthChart, bindChart, statTile, rankBars, navBar, entryRow, thumb, sec } from '../components.js';
+import { monthChart, bindChart, statTile, rankBars, shareBar, navBar, entryRow, thumb, empty } from '../components.js';
 import { CHANNELS, EXPENSE_CATS } from '../model.js';
 import { openEntryDetail } from '../sheets.js';
 import { go, back } from '../nav.js';
@@ -9,18 +9,18 @@ import { go, back } from '../nav.js';
 function channelBars(byChannel, total) {
   const rows = Object.keys(CHANNELS).map((k) => ({ label: CHANNELS[k].label, value: byChannel[k] || 0 })).filter((r) => r.value > 0);
   if (!rows.length) return '<p class="card-note">Noch keine Verkäufe.</p>';
-  return rankBars(rows.sort((a, b) => b.value - a.value), { valueFmt: (v) => `${money(v)} <span class="muted">${pct(v, total)} %</span>` });
+  return shareBar(rows.sort((a, b) => b.value - a.value), total);
 }
 function expenseBars(byExpense) {
   const rows = Object.keys(byExpense).map((k) => ({ label: EXPENSE_CATS[k] || 'Sonstiges', value: byExpense[k] })).filter((r) => r.value > 0);
   if (!rows.length) return '<p class="card-note">Keine Ausgaben.</p>';
-  return rankBars(rows.sort((a, b) => b.value - a.value));
+  return rankBars(rows.sort((a, b) => b.value - a.value), { cls: 'warm' });
 }
 function topList(rows) {
   if (!rows.length) return '<p class="card-note">Noch keine Verkäufe mit Artikeln.</p>';
   return `<div class="list">${rows.map((r, i) => {
     const p = r.pid ? getProduct(r.pid) : null;
-    return `<div class="row static">${thumb(p || { category: 'sonstiges' }, 'sm')}<span class="rmain"><span class="rtitle">${i + 1}. ${esc(r.name)}</span><span class="rsub">${r.qty} Stück</span></span><span class="ramt">${money(r.revenue)}</span></div>`;
+    return `<div class="row static"><span class="place">${i + 1}</span>${thumb(p || { category: 'sonstiges' }, 'sm')}<span class="rmain"><span class="rtitle">${esc(r.name)}</span><span class="rsub">${r.qty} Stück</span></span><span class="ramt">${money(r.revenue)}</span></div>`;
   }).join('')}</div>`;
 }
 
@@ -62,9 +62,13 @@ export function statsView(el, params) {
     const top = productRanking((e) => e.date.startsWith(year + '-')).slice(0, 8);
     const all = getTotals();
 
+    if (!store.state.entries.length) {
+      el.innerHTML = `<header class="lt"><div><h1>Statistik</h1></div></header>
+        <div class="content">${empty('Noch keine Zahlen', 'Sobald du Verkäufe oder Ausgaben einträgst, siehst du hier Monate, Jahre und deine Bestseller.', '', 'chart')}</div>`;
+      return;
+    }
     el.innerHTML = `
-      ${navBar('Statistik', 'Übersicht')}
-      <header class="lt compact">
+      <header class="lt">
         <div><h1>Statistik</h1></div>
         <div class="year-switch">
           <button type="button" class="icon-btn" data-year="${esc(ys[i - 1] || '')}" ${i > 0 ? '' : 'disabled'} aria-label="Vorjahr">${icon('chevL')}</button>
@@ -74,10 +78,10 @@ export function statsView(el, params) {
       </header>
       <div class="content">
         <section class="card">
-          <div class="stats3">
-            ${statTile('Umsatz', money(t.revenue))}
-            ${statTile('Ausgaben', money(t.expenses))}
-            ${statTile('Gewinn', money(t.profit), t.profit < 0 ? 'neg' : '')}
+          ${statTile(`Gewinn ${esc(year)}`, money(t.profit), 'big ' + (t.profit < 0 ? 'neg' : ''))}
+          <div class="stats2">
+            ${statTile('<i class="dot"></i>Umsatz', money(t.revenue))}
+            ${statTile('<i class="dot b"></i>Ausgaben', money(t.expenses))}
           </div>
           ${monthChart(months.map((m) => ({ key: m.key, revenue: m.revenue, expenses: m.expenses })), sel, { mini: true })}
           <p class="card-note">Säule antippen zeigt die Werte, nochmal antippen öffnet den Monat.</p>
@@ -114,14 +118,17 @@ export function statsView(el, params) {
           ${topList(top)}
         </section>
 
-        ${sec('Seit Beginn', `<div class="card">
+        <section class="sec">
+          <div class="sec-head"><h2>Seit Beginn</h2></div>
+          <div class="card">
             <div class="stats3">
               ${statTile('Umsatz', money(all.revenue))}
               ${statTile('Ausgaben', money(all.expenses))}
               ${statTile('Gewinn', money(all.profit), all.profit < 0 ? 'neg' : '')}
             </div>
           </div>
-          <div class="card list">${detailRows(all, { withDeposits: true })}</div>`)}
+          <div class="card list">${detailRows(all, { withDeposits: true })}</div>
+        </section>
       </div>`;
   }
   bindChart(el, (key) => go('monat/' + key));
@@ -130,7 +137,6 @@ export function statsView(el, params) {
     if (y && y.dataset.year) { year = y.dataset.year; render(); window.scrollTo(0, 0); return; }
     const mo = e.target.closest('.mt-row[data-month]');
     if (mo) { go('monat/' + mo.dataset.month); return; }
-    if (e.target.closest('[data-action="back"]')) back('');
   };
   return { render };
 }
@@ -143,7 +149,7 @@ export function monthView(el, params) {
     const list = sortedEntries(store.state.entries.filter((e) => monthKey(e.date) === key));
     const top = productRanking((e) => monthKey(e.date) === key).slice(0, 5);
     el.innerHTML = `
-      ${navBar(monthLabel(key), 'Zurück')}
+      ${navBar(monthLabel(key), 'Statistik')}
       <header class="lt compact"><div><h1>${esc(monthLabel(key, { year: false }))}</h1><p class="lt-sub">${esc(key.slice(0, 4))}</p></div></header>
       <div class="content">
         <section class="card">
