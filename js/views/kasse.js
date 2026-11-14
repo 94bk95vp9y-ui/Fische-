@@ -101,7 +101,7 @@ export function kasseView(el, _params, { onCartChange } = {}) {
         <div><h1>Kasse</h1></div>
         <div class="lt-actions">
           <button type="button" class="nav-btn" data-action="clear" ${cartCount() ? '' : 'hidden'}>Leeren</button>
-          <button type="button" class="nav-btn" data-action="manual" ${cartCount() ? 'hidden' : ''}>${icon('euro')}Nur Betrag</button>
+          <button type="button" class="nav-btn" data-action="manual" ${cartCount() ? 'hidden' : ''}>${icon('euro')}Ohne Artikel</button>
           ${all.length ? `<button type="button" class="nav-btn icon" data-action="manage" aria-label="Artikel verwalten">${icon('sliders')}</button>` : ''}
         </div>
       </header>
@@ -112,7 +112,7 @@ export function kasseView(el, _params, { onCartChange } = {}) {
           ${all.length > 8 ? `<label class="search">${icon('search')}<input type="search" placeholder="Artikel suchen" value="${esc(query)}" data-search autocomplete="off" enterkeyhint="search" aria-label="Artikel suchen"></label>` : ''}
           ${cats.length > 1 ? catChips(cats) : ''}
           <div class="tiles" data-tiles>${list.map(tileHtml).join('') || '<p class="card-note">Keine Treffer.</p>'}</div>
-          <p class="kasse-tip">Antippen = +1 · Zahl antippen = Menge eintippen<br>Verkauf ohne Artikel: oben „Nur Betrag“</p>
+          <p class="kasse-tip">Antippen = +1 · Zahl antippen = Menge eintippen<br>Einnahme ohne Artikel: oben „Ohne Artikel“</p>
         ` : empty('Noch keine Artikel', 'Lege an, was du verkaufst – mit Stückpreis und Foto. Dann tippst du hier einfach an, was der Kunde mitnimmt.',
           `<div class="btn-row center"><button type="button" class="btn primary" data-action="new-product">${icon('plus')}Artikel anlegen</button><button type="button" class="btn" data-action="ai-import">Aus Anzeige</button></div>`)}
       </div>

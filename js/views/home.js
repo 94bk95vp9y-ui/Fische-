@@ -1,7 +1,7 @@
-import { store, commit, getBalance, getMonth, getTotals, sortedEntries, activeEvent } from '../store.js';
-import { money, esc, currentMonthKey, addMonths, monthLabel, fmtDateLong, todayISO, isIOS, isStandalone, pct, daysBetween, isoDate } from '../util.js';
+import { store, commit, getBalance, getTotals, getFeePot, sortedEntries, activeEvent } from '../store.js';
+import { money, esc, fmtDateLong, todayISO, isIOS, isStandalone, daysBetween, isoDate } from '../util.js';
 import { icon, FISH_SVG } from '../icons.js';
-import { entryRow, statTile, moneyParts } from '../components.js';
+import { entryRow, moneyParts } from '../components.js';
 import { openEntryForm, openEntryDetail, openEventForm, openAdjust, markPaid } from '../sheets.js';
 import { openSheet } from '../ui.js';
 import { openProductEditor, openAiImport } from '../products.js';
@@ -43,6 +43,12 @@ export function homeView(el) {
       out.push(`<div class="banner accent">${icon('stall')}<span><strong>Messe-Modus:</strong> ${esc(ev.name)}</span>
         <button type="button" class="banner-link" data-go="messe/${esc(ev.id)}">Öffnen</button></div>`);
     }
+    const low = s.products.filter((p) => p.active && p.stock != null && p.stock <= 3);
+    if (low.length) {
+      const names = low.slice(0, 2).map((p) => `${p.name} (${p.stock})`).join(', ') + (low.length > 2 ? ` +${low.length - 2}` : '');
+      out.push(`<div class="banner">${icon('box')}<span><strong>Bestand knapp:</strong> ${esc(names)}</span>
+        <button type="button" class="banner-link" data-go="artikel">Artikel</button></div>`);
+    }
     const age = backupAgeDays();
     const daysUsed = daysBetween(isoDate(new Date(s.settings.createdAt || Date.now())), todayISO());
     if (s.entries.length >= 5 && ((age === null && daysUsed >= 7) || (age !== null && age >= 30))) {
@@ -59,9 +65,6 @@ export function homeView(el) {
 
   function render() {
     const s = store.state;
-    const mk = currentMonthKey();
-    const m = getMonth(mk);
-    const pm = getMonth(addMonths(mk, -1));
     const bal = getBalance();
     const today = todayISO();
     const todaySales = s.entries.filter((e) => e.type === 'sale' && e.status !== 'open' && e.date === today);
@@ -69,14 +72,7 @@ export function homeView(el) {
     const open = sortedEntries(s.entries.filter((e) => e.status === 'open'));
     const recent = sortedEntries(s.entries.filter((e) => e.status !== 'open')).slice(0, 5);
     const isNew = !s.products.length && !s.entries.length;
-    const delta = pm.revenue > 0 ? pct(m.revenue - pm.revenue, pm.revenue) : null;
-    const prevName = monthLabel(addMonths(mk, -1), { year: false });
     const balText = money(bal);
-
-    const monthNote = [`${m.sales} ${m.sales === 1 ? 'Verkauf' : 'Verkäufe'}`];
-    if (m.lumpSales) monthNote.push(`${m.lumpSales} ${m.lumpSales === 1 ? 'Messetag' : 'Messetage'}`);
-    // Anteil der Ausgaben am Umsatz: der Rest des Balkens ist der Gewinn
-    const spent = m.revenue > 0 ? Math.min(100, (m.expenses / m.revenue) * 100) : (m.expenses > 0 ? 100 : 0);
 
     el.innerHTML = `
       <header class="lt">
@@ -146,7 +142,14 @@ export function homeView(el) {
       case 'q-sale': openEntryForm({ type: 'sale' }); break;
       case 'q-expense': openEntryForm({ type: 'expense' }); break;
       case 'q-withdrawal': openEntryForm({ type: 'withdrawal' }); break;
-      case 'q-messe': openEventForm(); break;
+      case 'q-messe': {
+        // Laufende Messe öffnen, sonst die Liste – nur ohne Messen direkt das Formular
+        const ev = activeEvent();
+        if (ev) go('messe/' + ev.id);
+        else if (store.state.events.length) go('messen');
+        else openEventForm();
+        break;
+      }
       case 'start-balance': openEntryForm({ type: 'deposit', preset: { note: 'Startbetrag' } }); break;
       case 'new-product': openProductEditor(null); break;
       case 'ai-import': openAiImport(); break;
@@ -180,8 +183,9 @@ function openBalanceInfo() {
         ${row('Kassenstand', money(bal), 'total')}
       </div>
       <div class="group">
-        ${t.fees ? row(`${FEE_NAME}`, money(-t.fees)) : ''}
-        ${row(t.fees ? `Gewinn (Umsatz − ${FEE_NAME} − Ausgaben)` : 'Gewinn (Umsatz − Ausgaben)', money(t.profit))}
+        ${t.fees ? row(`${FEE_NAME} (angespart)`, money(-t.fees)) : ''}
+        ${row(t.fees ? `Gewinn (Umsatz − Ausgaben − ${FEE_NAME})` : 'Gewinn (Umsatz − Ausgaben)', money(t.profit))}
+        ${t.fees ? row(`${FEE_NAME}: noch im Topf`, money(getFeePot())) : ''}
       </div>
       <p class="hint">Der <strong>Kassenstand</strong> ist das Geld aus dem Verkauf, das gerade da sein sollte – bar und auf dem Konto zusammen. <strong>Entnahmen</strong> und <strong>Einlagen</strong> verändern nur den Kassenstand, nicht den Gewinn. Reservierte Verkäufe zählen erst, wenn sie bezahlt sind.</p>
       <button type="button" class="btn block" data-act="adjust">${icon('scale')}Mit echtem Geld abgleichen</button>`,

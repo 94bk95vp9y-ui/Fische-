@@ -293,11 +293,11 @@ export function openAiImport() {
       ${parsed.map((it, i) => `
         <div class="group import-item ${it.include ? '' : 'off'}">
           <label class="switch-row tight"><span><strong>${it.match ? 'Vorhandenen Artikel aktualisieren' : 'Neuer Artikel'}</strong>
-            <small>${esc((PRODUCT_CATS[it.category] || PRODUCT_CATS.sonstiges).label)}${it.stock != null ? ` · Bestand ${it.stock}` : ''}${it.tiers.length ? ` · ${it.tiers.map((t) => `ab ${t.min}: ${money(t.price)}`).join(', ')}` : ''}</small></span>
+            <small>${esc((PRODUCT_CATS[it.category] || PRODUCT_CATS.sonstiges).label)}${it.stock != null ? ` · Bestand ${it.stock}` : ''}${it.tiers.length ? ` · ${it.tiers.map((t) => `ab ${t.min}: ${money(t.price)}`).join(', ')}` : ''}${it.bonus ? ` · je ${it.bonus.per}: +${it.bonus.free} gratis` : ''}</small></span>
             <input type="checkbox" class="switch" data-inc="${i}" ${it.include ? 'checked' : ''}></label>
           <label class="field"><span class="field-label">Name</span><input class="in" data-iname="${i}" value="${esc(it.name)}" maxlength="60"></label>
           ${amountRow(`iprice-${i}`, it.match && it.match.price !== it.price ? `Stückpreis (bisher ${money(it.match.price)})` : 'Stückpreis', it.price, { placeholder: 'Preis fehlt' })}
-          ${it.note ? `<p class="field-note">${esc(it.note)}</p>` : ''}
+          ${it.note ? `<p class="field-note clamp">${esc(it.note)}</p>` : ''}
         </div>`).join('')}
       <p class="hint">Fotos kann die KI nicht übertragen – die fügst du danach im Artikel hinzu.</p></div>`;
     sheet.setRight('Übernehmen', parsed.some((x) => x.include));
@@ -357,6 +357,7 @@ export function openAiImport() {
           ex.price = it.price;
           ex.name = it.name.trim();
           if (it.tiers.length) ex.tiers = it.tiers;
+          if (it.bonus) ex.bonus = it.bonus;
           if (it.link && !ex.link) ex.link = it.link;
           if (it.note && !ex.note) ex.note = it.note;
           if (ex.stock == null && it.stock != null) ex.stock = it.stock;
@@ -365,7 +366,7 @@ export function openAiImport() {
           updated++;
         } else {
           s.products.push({
-            id: uid(), name: it.name.trim(), category: it.category, price: it.price, tiers: it.tiers,
+            id: uid(), name: it.name.trim(), category: it.category, price: it.price, tiers: it.tiers, bonus: it.bonus || null,
             stock: it.stock, image: null, note: it.note || '', link: it.link || '', active: true,
             priceHistory: [], order: order++, createdAt: Date.now(),
           });

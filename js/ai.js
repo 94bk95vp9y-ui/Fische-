@@ -15,7 +15,8 @@ REGELN
 5. "kategorie" ist genau einer dieser Werte: "Fisch", "Garnele", "Schnecke", "Pflanze", "Zubehör", "Sonstiges".
 6. "name" = kurzer, gebräuchlicher Name inkl. Farbe/Variante, höchstens 40 Zeichen (z. B. "Red Cherry Garnele", "Endler Guppy Black Bar", "Posthornschnecke rot"). Wörter wie „Verkaufe", „Nachzucht", „abzugeben" gehören NICHT in den Namen.
 7. "bestand" = genannte verfügbare Stückzahl als ganze Zahl (bei „ca. 30" → 30), sonst null.
-8. "beschreibung" = 1–2 kurze Sätze mit den wichtigsten Infos (Größe, Geschlecht, Haltung/Wasserwerte), höchstens 160 Zeichen, sonst null.
+8. "beschreibung" = der vollständige Beschreibungstext der Anzeige, wörtlich und ungekürzt (Zeilenumbrüche als \\n). Betrifft die Anzeige mehrere Artikel, bekommt jeder denselben Text. Kein Text vorhanden → null.
+8a. "gratis" = Gratis-Zugabe, z. B. „je 10 Stück 1 gratis“ → {"je": 10, "gratis": 1}. Keine Zugabe → null.
 9. "link" = Link zur Anzeige, falls sichtbar, sonst null.
 10. Erfinde nichts. Was nicht in der Anzeige steht, ist null. „VB" (Verhandlungsbasis): nimm den genannten Preis. Steht gar kein Preis da: "preis": null.
 
@@ -31,6 +32,7 @@ FORMAT
       "preis": 1.5,
       "staffelpreise": [{ "ab": 10, "preis": 1.2 }],
       "bestand": 40,
+      "gratis": { "je": 10, "gratis": 1 },
       "beschreibung": "Nachzucht aus eigenem Becken, ca. 1–2 cm, für Gesellschaftsbecken geeignet.",
       "link": null
     }
@@ -130,6 +132,13 @@ export function parseAiResponse(text) {
     const stockRaw = pick(raw, ['bestand', 'stock', 'anzahl', 'menge']);
     const stock = stockRaw === null ? null : parseIntSafe(stockRaw);
     const linkRaw = pick(raw, ['link', 'url']);
+    const bRaw = pick(raw, ['gratis', 'zugabe', 'bonus']);
+    let bonus = null;
+    if (bRaw && typeof bRaw === 'object') {
+      const per = parseIntSafe(pick(bRaw, ['je', 'pro', 'per', 'ab']));
+      const free = parseIntSafe(pick(bRaw, ['gratis', 'free', 'anzahl']));
+      if (per >= 2 && free >= 1) bonus = { per, free };
+    }
     const note = pick(raw, ['beschreibung', 'description', 'notiz']);
     items.push({
       name,
@@ -137,7 +146,8 @@ export function parseAiResponse(text) {
       price: price !== null && price >= 0 ? price : null,
       tiers,
       stock: stock !== null && stock >= 0 ? stock : null,
-      note: note ? String(note).trim().slice(0, 400) : '',
+      note: note ? String(note).trim().slice(0, 4000) : '',
+      bonus,
       link: linkRaw && isSafeUrl(String(linkRaw)) ? String(linkRaw) : '',
     });
   }

@@ -37,26 +37,29 @@ export const isLocked = () => openCount > 0;
  * onRight darf false zurückgeben, um offen zu bleiben.
  */
 export function openSheet(opts) {
+  // Hauptaktion (Speichern …) sitzt unten als großer Knopf – einhändig erreichbar.
+  const cta = !!opts.right && !opts.rightPlain;
   const wrap = document.createElement('div');
   wrap.className = 'sheet-wrap';
   wrap.style.zIndex = String(zTop += 2);
   wrap.innerHTML = `
     <div class="sheet-backdrop"></div>
-    <section class="sheet ${opts.cls || ''}" role="dialog" aria-modal="true" aria-label="${esc(opts.title || '')}">
+    <section class="sheet ${opts.cls || ''} ${cta ? 'has-cta' : ''}" role="dialog" aria-modal="true" aria-label="${esc(opts.title || '')}">
       <header class="sheet-head">
         <span class="grabber" aria-hidden="true"></span>
         <button type="button" class="sheet-btn sheet-left">${esc(opts.left ?? 'Abbrechen')}</button>
         <h2 class="sheet-title">${esc(opts.title || '')}</h2>
-        ${opts.right ? `<button type="button" class="sheet-btn sheet-right ${opts.rightPlain ? 'plain' : ''}">${esc(opts.right)}</button>` : '<span class="sheet-btn-spacer"></span>'}
+        ${opts.right && !cta ? `<button type="button" class="sheet-btn sheet-right plain">${esc(opts.right)}</button>` : '<span class="sheet-btn-spacer"></span>'}
       </header>
       <div class="sheet-body">${opts.content || ''}</div>
       ${opts.foot !== undefined ? `<div class="sheet-foot">${opts.foot}</div>` : ''}
+      ${cta ? `<div class="sheet-cta"><button type="button" class="btn primary block sheet-go">${esc(opts.right)}</button></div>` : ''}
     </section>`;
   layer().appendChild(wrap);
   lock();
   const sheet = wrap.querySelector('.sheet');
   const body = wrap.querySelector('.sheet-body');
-  const rightBtn = wrap.querySelector('.sheet-right');
+  const rightBtn = wrap.querySelector('.sheet-right, .sheet-go');
   let closed = false;
 
   const api = {
@@ -290,7 +293,7 @@ export function createKeypad({ integer = false, initial = null, onChange = () =>
  */
 export function openAmountPad(opts) {
   const integer = !!opts.integer;
-  const unit = integer ? (opts.unit ?? 'Stück') : '€';
+  const unit = opts.unit ?? (integer ? 'Stück' : '€');
   const sheet = openSheet({
     title: opts.title || '',
     right: opts.confirm || 'Fertig',

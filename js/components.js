@@ -1,7 +1,7 @@
 // HTML-Bausteine, die in mehreren Ansichten vorkommen.
-import { esc, money, moneyAxis, relDay, monthLabel, fmtDate } from './util.js';
+import { esc, money, moneyAxis, relDay, monthLabel, fmtDate, daysBetween, todayISO } from './util.js';
 import { icon, CAT_GLYPH } from './icons.js';
-import { CHANNELS, entryTitle, PRODUCT_CATS } from './model.js';
+import { CHANNELS, entryTitle, PRODUCT_CATS, EXPENSE_CATS, ENTRY_TYPES, FEE_NAME, itemsSummary } from './model.js';
 import { imgSrc } from './ui.js';
 import { store, getEvent } from './store.js';
 
@@ -30,24 +30,27 @@ export function amountHtml(e) {
 export function entrySub(e, { showDate = true } = {}) {
   const parts = [];
   if (showDate) parts.push(relDay(e.date));
+  const ev = e.eventId ? getEvent(e.eventId) : null;
   if (e.type === 'sale') {
-    if (e.eventId) { const ev = getEvent(e.eventId); parts.push(ev ? ev.name : CHANNELS.messe.short); }
-    else parts.push((CHANNELS[e.channel] || CHANNELS.other).short);
-    if (e.items && e.items.length && e.note) parts.push(e.note);
-  } else if (e.type === 'expense' && e.eventId) {
-    if (e.note) parts.push(e.note);
-    const ev = getEvent(e.eventId); if (ev) parts.push(ev.name);
-  } else if (e.note) parts.push(e.note);
+    if (ev) parts.push(ev.name); else parts.push((CHANNELS[e.channel] || CHANNELS.other).short);
+    if (e.items && e.items.length && e.note) parts.push(e.status === 'open' ? itemsSummary(e.items) : e.note);
+  } else if (e.type === 'expense') {
+    if (e.note) parts.push(EXPENSE_CATS[e.category] || 'Ausgabe'); // Titel ist dann der eigene Text
+    if (e.fromFee) parts.push(`aus ${FEE_NAME}`);
+    if (ev) parts.push(ev.name);
+  } else if (e.note) parts.push(ENTRY_TYPES[e.type].label);
   return parts.map(esc).join(' · ');
 }
 
 export function entryRow(e, opts = {}) {
   const t = e.type === 'sale' && e.items && e.items.length ? 'basket' : TYPE_ICON[e.type];
+  const open = e.status === 'open';
+  const age = open ? daysBetween(e.date, todayISO()) : 0;
   return `<button type="button" class="row entry" data-entry="${esc(e.id)}">
-    <span class="ricon t-${e.type}${e.status === 'open' ? ' t-open' : ''}">${icon(e.status === 'open' ? 'clock' : t)}</span>
+    <span class="ricon t-${e.type}${open ? ' t-open' : ''}">${icon(open ? 'clock' : t)}</span>
     <span class="rmain">
-      <span class="rtitle">${esc(entryTitle(e, store.state.events))}${e.status === 'open' ? ' <em class="pill">offen</em>' : ''}</span>
-      <span class="rsub">${entrySub(e, opts)}</span>
+      <span class="rtitle">${esc(entryTitle(e, store.state.events))}</span>
+      <span class="rsub">${open ? `<em class="pill ${age >= 7 ? 'accent' : ''}">${age >= 7 ? `offen seit ${age} Tagen` : 'offen'}</em> ` : ''}${entrySub(e, opts)}</span>
     </span>
     ${opts.hideAmount ? '' : amountHtml(e)}
   </button>`;
