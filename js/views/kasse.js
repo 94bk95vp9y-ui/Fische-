@@ -2,7 +2,7 @@ import { commit, activeProducts, activeEvent, getProduct } from '../store.js';
 import { money, esc } from '../util.js';
 import { icon, CAT_GLYPH } from '../icons.js';
 import { thumb, empty } from '../components.js';
-import { PRODUCT_CATS, unitPriceFor, sortedTiers } from '../model.js';
+import { PRODUCT_CATS, unitPriceFor, sortedTiers, freeFor } from '../model.js';
 import { openCheckout, openEntryForm, openQtyPad } from '../sheets.js';
 import { openProductEditor, openAiImport } from '../products.js';
 import { go } from '../nav.js';
@@ -25,7 +25,7 @@ function lines() {
     const qty = cart[p.id] || 0;
     if (qty > 0) {
       const unit = unitPriceFor(p, qty);
-      out.push({ product: p, qty, unit, total: unit * qty });
+      out.push({ product: p, qty, unit, total: unit * qty, free: freeFor(p.bonus, qty) });
     }
   }
   return out;
@@ -50,11 +50,16 @@ export function kasseView(el, _params, { onCartChange } = {}) {
     const tiers = sortedTiers(p.tiers);
     const unit = unitPriceFor(p, Math.max(1, qty));
     const id = esc(p.id);
-    return `<div class="tile ${qty ? 'on' : ''} ${p.stock != null && qty > p.stock ? 'over' : ''} ${p.stock != null && p.stock <= 0 ? 'out' : ''}" data-pid="${id}">
+    const free = freeFor(p.bonus, qty);
+    const deal = [];
+    if (tiers.length) deal.push(`ab ${tiers[0].min}: ${money(tiers[0].price)}`);
+    if (p.bonus) deal.push(`je ${p.bonus.per}: +${p.bonus.free} gratis`);
+    return `<div class="tile ${qty ? 'on' : ''} ${p.stock != null && qty + free > p.stock ? 'over' : ''} ${p.stock != null && p.stock <= 0 ? 'out' : ''}" data-pid="${id}">
       <div class="tile-media">
         <button type="button" class="tile-hit" data-add="${id}" aria-label="${esc(p.name)}, ${esc(money(p.price))} – hinzufügen">${thumb(p, 'tile-img')}</button>
         ${stockBadge(p)}
         <span class="tile-qty" aria-hidden="true">${qty || ''}</span>
+        <span class="tile-free" ${free ? '' : 'hidden'}>+${free} gratis</span>
         <div class="tile-step">
           <button type="button" data-dec="${id}" aria-label="eins weniger">${icon('minus')}</button>
           <button type="button" class="tile-count" data-qty="${id}" aria-label="Menge eingeben">${qty}</button>
@@ -63,7 +68,7 @@ export function kasseView(el, _params, { onCartChange } = {}) {
       </div>
       <div class="tile-info" data-add="${id}">
         <span class="tile-name">${esc(p.name)}</span>
-        <span class="tile-price ${unit !== p.price ? 'staffel' : ''}"><b>${money(unit)}</b>${tiers.length ? `<small>ab ${tiers[0].min}: ${money(tiers[0].price)}</small>` : ''}</span>
+        <span class="tile-price ${unit !== p.price ? 'staffel' : ''}"><b>${money(unit)}</b>${deal.length ? `<small>${deal.join(' · ')}</small>` : ''}</span>
       </div>
     </div>`;
   }
@@ -121,7 +126,11 @@ export function kasseView(el, _params, { onCartChange } = {}) {
       if (!p) return;
       const qty = cart[p.id] || 0;
       t.classList.toggle('on', qty > 0);
-      t.classList.toggle('over', p.stock != null && qty > p.stock);
+      const free = freeFor(p.bonus, qty);
+      t.classList.toggle('over', p.stock != null && qty + free > p.stock);
+      const fr = t.querySelector('.tile-free');
+      fr.hidden = !free;
+      fr.textContent = `+${free} gratis`;
       t.querySelector('.tile-qty').textContent = qty || '';
       t.querySelector('.tile-count').textContent = qty;
       const unit = unitPriceFor(p, Math.max(1, qty));
@@ -136,11 +145,12 @@ export function kasseView(el, _params, { onCartChange } = {}) {
     if (!bar) return;
     const ls = lines();
     const n = ls.reduce((a, l) => a + l.qty, 0);
+    const gratis = ls.reduce((a, l) => a + l.free, 0);
     const total = ls.reduce((a, l) => a + l.total, 0);
     // Leerer Warenkorb: Leiste ausblenden, damit die Kacheln frei bleiben
     bar.classList.toggle('show', n > 0);
     if (n) {
-      bar.innerHTML = `<div class="dock-info"><span class="dock-count">${n} Stück${ls.length > 1 ? ` · ${ls.length} Sorten` : ''}</span><span class="dock-total">${money(total)}</span></div>
+      bar.innerHTML = `<div class="dock-info"><span class="dock-count">${n} Stück${gratis ? ` + ${gratis} gratis` : ls.length > 1 ? ` · ${ls.length} Sorten` : ''}</span><span class="dock-total">${money(total)}</span></div>
         <button type="button" class="btn primary" data-action="checkout">Kassieren${icon('arrowR')}</button>`;
     }
     document.body.classList.toggle('has-cart', n > 0);

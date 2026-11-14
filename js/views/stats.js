@@ -1,8 +1,8 @@
 import { store, getMonth, yearTotals, monthKeys, productRanking, sortedEntries, getProduct, getTotals } from '../store.js';
-import { esc, money, monthLabel, monthKey, currentMonthKey, pct } from '../util.js';
+import { esc, money, monthLabel, monthKey, currentMonthKey, addMonths, pct } from '../util.js';
 import { icon } from '../icons.js';
 import { monthChart, bindChart, statTile, rankBars, shareBar, navBar, entryRow, thumb, empty } from '../components.js';
-import { CHANNELS, EXPENSE_CATS } from '../model.js';
+import { CHANNELS, EXPENSE_CATS, FEE_NAME } from '../model.js';
 import { openEntryDetail } from '../sheets.js';
 import { go, back } from '../nav.js';
 
@@ -28,12 +28,41 @@ function topList(rows) {
 function detailRows(t, { withDeposits = false } = {}) {
   const row = (k, v, sub = '') => `<div class="kv"><span>${k}${sub ? `<small>${sub}</small>` : ''}</span><span>${v}</span></div>`;
   return `<div class="kv-list">
+    ${t.fees ? row(FEE_NAME, money(-t.fees), 'geht vom Umsatz ab, mindert den Gewinn') : ''}
     ${row('Verkäufe', String(t.sales), t.lumpSales ? `plus ${t.lumpSales} Messe-Tagessumme${t.lumpSales === 1 ? '' : 'n'}` : '')}
     ${row('Ø pro Verkauf', t.avgSale != null ? money(t.avgSale) : '–', t.lumpSales ? 'ohne Messe-Tagessummen' : '')}
     ${t.items ? row('Verkaufte Tiere/Artikel', String(t.items)) : ''}
     ${row('Privat entnommen', money(t.withdrawals))}
     ${withDeposits ? row('Einlagen', money(t.deposits)) : ''}
   </div>`;
+}
+
+/** Laufender Monat: Umsatz, Ausgaben, Gewinn – mit Balken „wie viel vom Umsatz bleibt“ */
+function monthCard(mk) {
+  const m = getMonth(mk);
+  const pm = getMonth(addMonths(mk, -1));
+  const delta = pm.revenue > 0 ? pct(m.revenue - pm.revenue, pm.revenue) : null;
+  const gone = m.expenses + m.fees;
+  const spent = m.revenue > 0 ? Math.min(100, (gone / m.revenue) * 100) : (gone > 0 ? 100 : 0);
+  const note = [`${m.sales} ${m.sales === 1 ? 'Verkauf' : 'Verkäufe'}`];
+  if (m.lumpSales) note.push(`${m.lumpSales} ${m.lumpSales === 1 ? 'Messetag' : 'Messetage'}`);
+  if (m.fees) note.push(`${FEE_NAME} ${money(m.fees)}`);
+  return `<section class="sec">
+    <div class="sec-head"><h2>${esc(monthLabel(mk, { year: false }))}</h2><button type="button" class="link" data-month="${mk}">Details ${icon('chevR', 'ic-sm')}</button></div>
+    <button type="button" class="card month-card" data-month="${mk}">
+      <div class="stats3">
+        ${statTile('<i class="dot"></i>Umsatz', money(m.revenue))}
+        ${statTile('<i class="dot b"></i>Ausgaben', money(m.expenses))}
+        ${statTile('Gewinn', money(m.profit), m.profit < 0 ? 'neg' : '')}
+      </div>
+      <div class="split-bar ${m.revenue > 0 ? 'has' : ''}" aria-hidden="true">${spent > 0 ? `<span style="width:${spent.toFixed(1)}%"></span>` : ''}</div>
+      <div class="month-foot">
+        <span>${esc(note.join(' · '))}</span>
+        ${delta !== null ? `<span class="delta ${delta < 0 ? 'down' : ''}">${icon(delta < 0 ? 'arrowDown' : 'arrowUp')}${Math.abs(delta)} % ggü. ${esc(monthLabel(addMonths(mk, -1), { year: false }))}</span>` : ''}
+      </div>
+    </button>
+  </section>
+  <div class="sec-head"><h2>Jahr ${esc(mk.slice(0, 4))}</h2></div>`;
 }
 
 // ------------------------------------------------------------------
@@ -77,6 +106,7 @@ export function statsView(el, params) {
         </div>
       </header>
       <div class="content">
+        ${year === cmk.slice(0, 4) ? monthCard(cmk) : ''}
         <section class="card">
           ${statTile(`Gewinn ${esc(year)}`, money(t.profit), 'big ' + (t.profit < 0 ? 'neg' : ''))}
           <div class="stats2">
@@ -97,7 +127,7 @@ export function statsView(el, params) {
                 <span>${esc(monthLabel(m.key, { year: false }))}</span>
                 <span>${money(m.revenue)}</span>
                 <span>${money(m.expenses)}</span>
-                <span class="${m.revenue - m.expenses < 0 ? 'neg' : ''}">${money(m.revenue - m.expenses)}</span>
+                <span class="${m.profit < 0 ? 'neg' : ''}">${money(m.profit)}</span>
               </button>`).join('') || '<p class="card-note">Keine Daten.</p>'}
             <div class="mt-row mt-foot"><span>Summe</span><span>${money(t.revenue)}</span><span>${money(t.expenses)}</span><span class="${t.profit < 0 ? 'neg' : ''}">${money(t.profit)}</span></div>
           </div>
@@ -135,7 +165,7 @@ export function statsView(el, params) {
   el.onclick = (e) => {
     const y = e.target.closest('[data-year]');
     if (y && y.dataset.year) { year = y.dataset.year; render(); window.scrollTo(0, 0); return; }
-    const mo = e.target.closest('.mt-row[data-month]');
+    const mo = e.target.closest('[data-month]:not(.ccol)');
     if (mo) { go('monat/' + mo.dataset.month); return; }
   };
   return { render };

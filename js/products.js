@@ -13,7 +13,7 @@ import { AI_PROMPT, parseAiResponse } from './ai.js';
 export function openProductEditor(id, { preset = null } = {}) {
   const orig = id ? getProduct(id) : null;
   const p = orig ? JSON.parse(JSON.stringify(orig)) : {
-    id: uid(), name: '', category: 'fisch', price: null, tiers: [], stock: null, image: null,
+    id: uid(), name: '', category: 'fisch', price: null, tiers: [], bonus: null, stock: null, image: null,
     note: '', link: '', active: true, priceHistory: [], ...(preset || {}),
   };
   let dirty = false;
@@ -21,7 +21,7 @@ export function openProductEditor(id, { preset = null } = {}) {
   const sold = orig ? productSold(orig.id) : null;
 
   const sheet = openSheet({
-    title: orig ? 'Artikel bearbeiten' : 'Neuer Artikel',
+    title: orig ? 'Artikel' : 'Neuer Artikel',
     right: 'Speichern',
     dirty: () => dirty,
     content: `
@@ -36,8 +36,13 @@ export function openProductEditor(id, { preset = null } = {}) {
         <label class="field"><span class="field-label">Name</span><input type="text" class="in" data-f="name" value="${esc(p.name)}" placeholder="z. B. Red Cherry Garnele" maxlength="60" autocomplete="off"></label>
         ${amountRow('price', 'Stückpreis', p.price, { placeholder: 'Preis eintragen' })}
       </div>
+      ${sec('Beschreibung <span class="muted">(z. B. der Text deiner Anzeige)</span>', `
+        <div class="group">
+          <label class="field"><textarea class="in grow" data-f="note" rows="4" maxlength="4000" placeholder="Was ist das? Größe, Haltung, Besonderheiten …" aria-label="Beschreibung">${esc(p.note || '')}</textarea></label>
+        </div>`)}
       ${sec('Kategorie', chips('cat', PRODUCT_CAT_KEYS.map((k) => ({ value: k, label: PRODUCT_CATS[k].label })), p.category))}
       ${sec('Mengenrabatt <span class="muted">(optional, z. B. ab 10 Stück je 1,20 €)</span>', '<div class="group" data-tiers></div>')}
+      ${sec('Gratis-Zugabe <span class="muted">(optional, z. B. je 10 Stück 1 gratis)</span>', '<div class="group" data-bonus></div>')}
       ${sec('Bestand <span class="muted">(optional)</span>', `
         <div class="group">
           <label class="switch-row"><span><strong>Bestand mitzählen</strong><small>Wird bei jedem Verkauf automatisch verringert.</small></span>
@@ -55,10 +60,9 @@ export function openProductEditor(id, { preset = null } = {}) {
         <label class="switch-row"><span><strong>In der Kasse anzeigen</strong><small>Aus = archiviert, z. B. wenn gerade nichts da ist.</small></span>
           <input type="checkbox" class="switch" data-f="active" ${p.active ? 'checked' : ''}></label>
       </div>
-      ${sec('Anzeige & Notiz <span class="muted">(optional)</span>', `
+      ${sec('Anzeige <span class="muted">(optional)</span>', `
         <div class="group">
           <label class="field"><span class="field-label">Link zur Anzeige</span><input type="url" class="in" data-f="link" value="${esc(p.link || '')}" placeholder="https://www.kleinanzeigen.de/…" autocomplete="off" autocapitalize="off"></label>
-          <label class="field"><span class="field-label">Beschreibung</span><textarea class="in" data-f="note" rows="2" maxlength="400" placeholder="optional">${esc(p.note || '')}</textarea></label>
         </div>
         ${p.link && isSafeUrl(p.link) ? `<a class="btn block" href="${esc(p.link)}" target="_blank" rel="noopener">${icon('external')}Anzeige öffnen</a>` : ''}`)}
       ${orig ? sec('Statistik', `
@@ -91,6 +95,22 @@ export function openProductEditor(id, { preset = null } = {}) {
       </div>`).join('') +
       `<button type="button" class="row add-row" data-act="tier-add">${icon('plus')}<span>${p.tiers.length ? 'Weitere Staffel' : 'Staffelpreis hinzufügen'}</span></button>`;
   }
+  function renderBonus() {
+    const wrap = body.querySelector('[data-bonus]');
+    wrap.innerHTML = p.bonus ? `
+      <div class="tier">
+        <span>je</span>
+        <button type="button" class="pill-btn" data-bonus-f="per">${p.bonus.per} Stück</button>
+        <button type="button" class="pill-btn" data-bonus-f="free">${p.bonus.free} gratis</button>
+        <button type="button" class="icon-btn" data-act="bonus-del" aria-label="Gratis-Zugabe entfernen">${icon('x')}</button>
+      </div>` : `<button type="button" class="row add-row" data-act="bonus-add">${icon('plus')}<span>Gratis-Zugabe hinzufügen</span></button>`;
+  }
+  // Beschreibung wächst mit dem Text, damit man sie ohne Scrollen im Feld komplett lesen kann
+  const noteIn = body.querySelector('[data-f="note"]');
+  const growNote = () => { noteIn.style.height = 'auto'; noteIn.style.height = noteIn.scrollHeight + 2 + 'px'; };
+  noteIn.addEventListener('input', growNote);
+  requestAnimationFrame(growNote);
+  setTimeout(growNote, 400);
   const renderStock = () => { body.querySelector('[data-act="stock-pad"]').textContent = stockVal; };
   const editTierPrice = (i) => openAmountPad({
     title: `Preis ab ${p.tiers[i].min || '?'} Stück`, label: 'pro Stück', initial: p.tiers[i].price,
@@ -98,6 +118,7 @@ export function openProductEditor(id, { preset = null } = {}) {
   });
   renderPhoto();
   renderTiers();
+  renderBonus();
 
   bindChoice(body, '[data-chips="cat"]', (v) => { p.category = v; dirty = true; if (!p.image) renderPhoto(); });
 
@@ -128,8 +149,20 @@ export function openProductEditor(id, { preset = null } = {}) {
     if (tp) { editTierPrice(+tp.dataset.tierPrice); return; }
     const td = e.target.closest('[data-tier-del]');
     if (td) { p.tiers.splice(+td.dataset.tierDel, 1); dirty = true; renderTiers(); return; }
+    const bf = e.target.closest('[data-bonus-f]');
+    if (bf) {
+      const key = bf.dataset.bonusF;
+      openAmountPad({
+        title: key === 'per' ? 'Je wie viele Stück?' : 'Wie viele gratis dazu?', integer: true, initial: p.bonus[key],
+        hint: (n) => (key === 'per' && n != null && n < 2 ? 'Mindestens 2 Stück' : ''),
+        onSet: (n) => { p.bonus[key] = Math.max(key === 'per' ? 2 : 1, n || 0); dirty = true; renderBonus(); },
+      });
+      return;
+    }
     const a = e.target.closest('[data-act]');
     if (!a) return;
+    if (a.dataset.act === 'bonus-add') { p.bonus = { per: 10, free: 1 }; dirty = true; renderBonus(); }
+    if (a.dataset.act === 'bonus-del') { p.bonus = null; dirty = true; renderBonus(); }
     if (a.dataset.act === 'tier-add') {
       const last = p.tiers[p.tiers.length - 1];
       p.tiers.push({ min: last && last.min ? last.min * 2 : 10, price: null });
@@ -176,6 +209,7 @@ export function openProductEditor(id, { preset = null } = {}) {
       name, price,
       category: p.category,
       tiers: sortedTiers(tiers),
+      bonus: p.bonus && p.bonus.per >= 2 && p.bonus.free >= 1 ? { per: p.bonus.per, free: p.bonus.free } : null,
       stock: trackIn.checked ? Math.max(0, stockVal) : null,
       image: p.image,
       active: body.querySelector('[data-f="active"]').checked,

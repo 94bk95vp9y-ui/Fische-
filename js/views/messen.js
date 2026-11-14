@@ -64,7 +64,7 @@ export function messeView(el, params) {
             ${statTile('Kosten', money(st.costs))}
             ${statTile('Gewinn', money(st.profit), st.profit < 0 ? 'neg' : '')}
           </div>
-          <p class="card-note">${st.sales} ${st.sales === 1 ? 'Verkauf' : 'Verkäufe'} zugeordnet.</p>
+          <p class="card-note">${st.sales} ${st.sales === 1 ? 'Verkauf' : 'Verkäufe'} zugeordnet.${st.fees ? ` Gewinn nach ${money(st.fees)} Abgabe.` : ''}</p>
         </section>
 
         <button type="button" class="btn ${active ? '' : 'primary'} block" data-action="toggle">

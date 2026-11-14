@@ -52,6 +52,25 @@ export function balanceEffect(e) {
   }
 }
 
+/**
+ * Abgabe: fester Prozentsatz, der von jedem Verkauf abgeht und den Gewinn mindert.
+ * Der Satz wird beim Verkauf am Eintrag gespeichert (feeRate) – spätere Änderungen
+ * in den Einstellungen gelten nur für neue Verkäufe.
+ */
+export const FEE_NAME = 'Abgabe';
+export const feeFor = (amount, rate) => (rate > 0 ? Math.round((amount * rate) / 100) : 0);
+/** Abgabe an einem Verkaufs-Eintrag setzen bzw. entfernen. */
+export function applyFee(e, rate) {
+  if (e.type === 'sale' && rate > 0) { e.feeRate = rate; e.fee = feeFor(e.amount, rate); }
+  else { delete e.feeRate; delete e.fee; }
+}
+
+/** Gratis-Zugabe: „je 10 Stück 1 gratis". Gibt die Gratis-Stückzahl für eine bezahlte Menge zurück. */
+export function freeFor(bonus, qty) {
+  if (!bonus || !(bonus.per > 0) || !(bonus.free > 0)) return 0;
+  return Math.floor(qty / bonus.per) * bonus.free;
+}
+
 /** Stückpreis abhängig von der Menge (Staffelpreise). */
 export function unitPriceFor(product, qty) {
   let unit = product.price;
@@ -70,7 +89,7 @@ export function sortedTiers(tiers) {
 /** Kurztext der Artikel eines Verkaufs: "5× Guppy, 2× Red Cherry" */
 export function itemsSummary(items, max = 3) {
   if (!items || !items.length) return '';
-  const parts = items.slice(0, max).map((i) => `${i.qty}× ${i.name}`);
+  const parts = items.slice(0, max).map((i) => `${i.qty + (i.free || 0)}× ${i.name}`);
   if (items.length > max) parts.push(`+${items.length - max}`);
   return parts.join(', ');
 }
@@ -93,7 +112,7 @@ export function entryTitle(e, events) {
 }
 
 export function itemsQty(items) {
-  return (items || []).reduce((s, i) => s + i.qty, 0);
+  return (items || []).reduce((s, i) => s + i.qty + (i.free || 0), 0);
 }
 
 /** Bestand abziehen; gibt zurück, wie viel tatsächlich abgezogen wurde (nie unter 0). */
@@ -106,5 +125,5 @@ export function takeStock(p, qty) {
 /** Genau das zurückbuchen, was beim Verkauf abgezogen wurde. */
 export function returnStock(p, item) {
   if (!p || p.stock == null) return;
-  p.stock += item.taken ?? item.qty;
+  p.stock += item.taken ?? (item.qty + (item.free || 0));
 }

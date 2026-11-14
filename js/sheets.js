@@ -2,7 +2,7 @@
 import { store, commit, getEvent, getProduct, sortedEvents, getBalance } from './store.js';
 import { openSheet, actionSheet, createKeypad, undoToast, toast, confirmDanger, openAmountPad } from './ui.js';
 import { esc, money, uid, todayISO, isValidISO, fmtDateLong, fmtDateTime, fmtDate } from './util.js';
-import { CHANNELS, CHANNEL_KEYS, EXPENSE_CATS, EXPENSE_CAT_KEYS, ENTRY_TYPES, entryTitle, itemsQty, unitPriceFor, takeStock, returnStock } from './model.js';
+import { CHANNELS, CHANNEL_KEYS, EXPENSE_CATS, EXPENSE_CAT_KEYS, ENTRY_TYPES, entryTitle, itemsQty, unitPriceFor, takeStock, returnStock, applyFee, feeFor, freeFor, FEE_NAME } from './model.js';
 import { seg, chips, bindChoice, sec, amountRow, setAmountRow } from './components.js';
 import { icon } from './icons.js';
 import { go } from './nav.js';
@@ -107,7 +107,8 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
       sel.addEventListener('change', () => { if (sel.value !== '__new') v.eventId = sel.value; });
       if (v.type === 'sale' && !v.eventId && sel.value && sel.value !== '__new') v.eventId = sel.value;
     }
-    body.querySelector('[data-hint]').textContent = HINTS[v.type] || '';
+    const rate = editing ? entry.feeRate || 0 : st.settings.feeRate || 0;
+    body.querySelector('[data-hint]').textContent = (HINTS[v.type] || '') + (v.type === 'sale' && rate > 0 ? ` · ${rate} % ${FEE_NAME}` : '');
   }
   function updateDisplay() {
     body.querySelector('[data-amt]').textContent = kp.display();
@@ -151,6 +152,7 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
         const e = s.entries.find((x) => x.id === entry.id);
         if (!e) return;
         Object.assign(e, data, { updatedAt: Date.now() });
+        applyFee(e, e.feeRate || 0);
         if (e.type !== 'sale') { delete e.channel; }
         if (e.type !== 'expense') { delete e.category; }
         if (!e.eventId) delete e.eventId;
@@ -158,6 +160,7 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
       undoToast('Änderung gespeichert', undo);
     } else {
       const e = { id: uid(), ...data, createdAt: Date.now() };
+      applyFee(e, st.settings.feeRate || 0);
       if (!e.eventId) delete e.eventId;
       const undo = commit((s) => { s.entries.push(e); });
       const sign = v.type === 'sale' || v.type === 'deposit' ? money(amount, { sign: true }) : money(-amount);
@@ -183,6 +186,7 @@ export function openEntryDetail(id) {
   if (ev) rows.push(['Messe', `<button type="button" class="link" data-act="event">${esc(ev.name)} ${icon('chevR')}</button>`]);
   if (e.type === 'expense') rows.push(['Kategorie', esc(EXPENSE_CATS[e.category] || 'Sonstiges')]);
   if (e.note) rows.push(['Notiz', esc(e.note)]);
+  if (e.type === 'sale' && e.fee) rows.push([`${FEE_NAME} (${e.feeRate} %)`, `${money(-e.fee)} <small class="muted">bleiben ${money(e.amount - e.fee)}</small>`]);
   if (e.status === 'open') rows.push(['Status', '<em class="pill">offen – noch nicht bezahlt</em>']);
   rows.push(['Erfasst', esc(fmtDateTime(e.createdAt || Date.now()))]);
   if (e.updatedAt) rows.push(['Geändert', esc(fmtDateTime(e.updatedAt))]);
@@ -191,7 +195,7 @@ export function openEntryDetail(id) {
   if (e.items && e.items.length) {
     const diff = e.amount - e.listTotal;
     itemsHtml = sec(`${itemsQty(e.items)} Stück`, `<div class="group">
-        ${e.items.map((i) => `<div class="line"><span class="line-name">${esc(i.name)}<small>${i.qty} × ${money(i.unit)}</small></span><span class="line-amt">${money(i.total)}</span></div>`).join('')}
+        ${e.items.map((i) => `<div class="line"><span class="line-name">${esc(i.name)}<small>${i.qty} × ${money(i.unit)}${i.free ? ` + ${i.free} gratis` : ''}</small></span><span class="line-amt">${money(i.total)}</span></div>`).join('')}
         ${diff !== 0 ? `<div class="line sub"><span>Summe laut Preisen</span><span>${money(e.listTotal)}</span></div>
           <div class="line sub"><span>${diff < 0 ? 'Rabatt' : 'Aufpreis'}</span><span>${money(diff, { sign: true })}</span></div>` : ''}
         <div class="line total"><span>${e.status === 'open' ? 'Zu zahlen' : 'Bezahlt'}</span><span>${money(e.amount)}</span></div>
@@ -310,7 +314,7 @@ export function openSaleEdit(id) {
   function renderItems() {
     body.querySelector('[data-items]').innerHTML = items.map((i, idx) => `
       <div class="line edit ${i.qty === 0 ? 'removed' : ''}">
-        <span class="line-name">${esc(i.name)}<small>${money(i.unit)} pro Stück</small></span>
+        <span class="line-name">${esc(i.name)}<small>${money(i.unit)} pro Stück${i.free ? ` · + ${i.free} gratis` : ''}</small></span>
         <span class="stepper sm">
           <button type="button" data-step="-1" data-idx="${idx}" aria-label="weniger">${icon('minus')}</button>
           <span>${i.qty}</span>
@@ -327,6 +331,7 @@ export function openSaleEdit(id) {
     if (b) {
       const it = items[+b.dataset.idx];
       it.qty = Math.max(0, it.qty + +b.dataset.step);
+      if (it.bonus) it.free = freeFor(it.bonus, it.qty);
       changed = true;
       renderItems();
       if (!paidTouched) { v.paid = listTotal(); setAmountRow(body, 'paid', v.paid); }
@@ -355,9 +360,10 @@ export function openSaleEdit(id) {
       // Bestand um die Differenz korrigieren
       e.items.forEach((old, idx) => {
         const now = items[idx];
-        const diff = (now ? now.qty : 0) - old.qty;
+        const pieces = (x) => x.qty + (x.free || 0); // inkl. Gratis-Zugabe
+        const diff = (now ? pieces(now) : 0) - pieces(old);
         const p = s.products.find((x) => x.id === old.pid);
-        const taken = old.taken ?? old.qty;
+        const taken = old.taken ?? pieces(old);
         if (!p || p.stock == null || !diff) { if (now) now.taken = taken; return; }
         if (diff > 0) { if (now) now.taken = taken + takeStock(p, diff); }
         else { const give = Math.min(-diff, taken); p.stock += give; if (now) now.taken = taken - give; }
@@ -365,6 +371,7 @@ export function openSaleEdit(id) {
       e.items = kept.map((i) => ({ ...i, total: i.unit * i.qty }));
       e.listTotal = e.items.reduce((a, i) => a + i.total, 0);
       e.amount = v.paid;
+      applyFee(e, e.feeRate || 0);
       e.channel = v.channel;
       if (v.channel === 'messe') e.eventId = v.eventId; else delete e.eventId;
       e.date = date;
@@ -391,8 +398,9 @@ export function openCheckout(lines, onDone) {
     eventId: activeEv ? activeEv.id : '',
     paid: listTotal,
     given: null,
+    feeRate: st.settings.feeRate || 0,
   };
-  const qty = lines.reduce((a, l) => a + l.qty, 0);
+  const qty = lines.reduce((a, l) => a + l.qty + (l.free || 0), 0);
 
   const sheet = openSheet({
     title: 'Verkauf',
@@ -412,9 +420,15 @@ export function openCheckout(lines, onDone) {
       ${sec('Verkauft über', seg('channel', CHANNEL_OPTIONS, v.channel))}
       <div class="contents" data-eventwrap></div>
       ${sec(`Artikel · ${qty} Stück`, `<div class="group">
-        ${lines.map((l) => `<div class="line"><span class="line-name">${esc(l.product.name)}<small>${l.qty} × ${money(l.unit)}${l.unit !== l.product.price ? ' · Staffelpreis' : ''}</small></span><span class="line-amt">${money(l.total)}</span></div>`).join('')}
+        ${lines.map((l) => `<div class="line"><span class="line-name">${esc(l.product.name)}<small>${l.qty} × ${money(l.unit)}${l.unit !== l.product.price ? ' · Staffelpreis' : ''}${l.free ? ` · + ${l.free} gratis` : ''}</small></span><span class="line-amt">${money(l.total)}</span></div>`).join('')}
         <div class="line total"><span>Summe</span><span>${money(listTotal)}</span></div>
       </div>`)}
+      <div class="group">
+        <button type="button" class="field row-field amt-row" data-act="fee">
+          <span class="field-label">${icon('tag')}<span data-feelabel></span></span>
+          <span class="amt-val" data-feeval></span>
+        </button>
+      </div>
       <div class="group compact">
         <label class="field row-field"><span class="field-label">${icon('calendar')}Datum</span><input type="date" class="in" data-f="date" value="${todayISO()}"></label>
         <label class="field row-field"><span class="field-label">${icon('pencil')}Notiz</span><input type="text" class="in" data-f="note" placeholder="z. B. Name des Käufers" maxlength="140"></label>
@@ -440,6 +454,11 @@ export function openCheckout(lines, onDone) {
       notes.map((n) => `<button type="button" class="chip ${v.given === n ? 'on' : ''}" data-given-v="${n}">${money(n, { round: true })}</button>`).join('') +
       `<button type="button" class="chip ${v.given !== null && !notes.includes(v.given) ? 'on' : ''}" data-given-v="other">${v.given !== null && !notes.includes(v.given) ? esc(money(v.given)) : 'Anderer'}</button>`;
     body.querySelector('[data-change]').textContent = v.given !== null ? `Rückgeld ${money(v.given - v.paid)}` : '';
+    const fee = feeFor(v.paid, v.feeRate);
+    body.querySelector('[data-feelabel]').innerHTML = v.feeRate > 0 ? `${FEE_NAME} ${v.feeRate} %<small>bleiben ${esc(money(v.paid - fee))}</small>` : FEE_NAME;
+    const fv = body.querySelector('[data-feeval]');
+    fv.textContent = v.feeRate > 0 ? money(-fee) : 'keine';
+    fv.classList.toggle('empty', !(v.feeRate > 0));
   }
   renderPay();
   const renderEvent = bindEventWrap(body, v);
@@ -452,6 +471,14 @@ export function openCheckout(lines, onDone) {
         hint: (c) => discountText(c, listTotal),
         quick: [{ label: `Summe ${money(listTotal)}`, value: listTotal }],
         onSet: (c) => { v.paid = c; renderPay(); },
+      });
+      return;
+    }
+    if (e.target.closest('[data-act="fee"]')) {
+      openAmountPad({
+        title: `${FEE_NAME} für diesen Verkauf`, label: 'Prozent vom bezahlten Betrag', integer: true, unit: '%', initial: v.feeRate || null, allowEmpty: true,
+        hint: (n) => (n > 100 ? 'Höchstens 100 %' : n ? `${money(-feeFor(v.paid, n))} · bleiben ${money(v.paid - feeFor(v.paid, n))}` : `Leer = keine ${FEE_NAME}`),
+        onSet: (n) => { v.feeRate = Math.min(100, n || 0); renderPay(); },
       });
       return;
     }
@@ -485,13 +512,18 @@ export function openCheckout(lines, onDone) {
     const isOpen = body.querySelector('[data-f="open"]').checked;
     const e = {
       id: uid(), type: 'sale', date, amount: v.paid, listTotal,
-      items: lines.map((l) => ({ pid: l.product.id, name: l.product.name, qty: l.qty, unit: l.unit, total: l.total, taken: 0 })),
+      items: lines.map((l) => {
+        const it = { pid: l.product.id, name: l.product.name, qty: l.qty, unit: l.unit, total: l.total, taken: 0 };
+        if (l.free) { it.free = l.free; it.bonus = { per: l.product.bonus.per, free: l.product.bonus.free }; }
+        return it;
+      }),
       channel: v.channel, note, createdAt: Date.now(),
     };
+    applyFee(e, v.feeRate);
     if (v.channel === 'messe') e.eventId = v.eventId;
     if (isOpen) e.status = 'open';
     const undo = commit((s) => {
-      for (const it of e.items) it.taken = takeStock(s.products.find((x) => x.id === it.pid), it.qty);
+      for (const it of e.items) it.taken = takeStock(s.products.find((x) => x.id === it.pid), it.qty + (it.free || 0));
       s.entries.push(e);
     });
     onDone && onDone(undo);
@@ -564,7 +596,11 @@ export function openEventForm(event = null, { onSaved = null, simple = false } =
     const now = Date.now();
     const undo = commit((s) => {
       s.events.push(ev);
-      if (rev > 0) s.entries.push({ id: uid(), type: 'sale', amount: rev, date, channel: 'messe', eventId: ev.id, note: 'Tageseinnahmen', createdAt: now });
+      if (rev > 0) {
+        const sale = { id: uid(), type: 'sale', amount: rev, date, channel: 'messe', eventId: ev.id, note: 'Tageseinnahmen', createdAt: now };
+        applyFee(sale, s.settings.feeRate || 0);
+        s.entries.push(sale);
+      }
       if (fee > 0) s.entries.push({ id: uid(), type: 'expense', amount: fee, date, category: 'messe', eventId: ev.id, note: 'Standgebühr', createdAt: now + 1 });
       if (travel > 0) s.entries.push({ id: uid(), type: 'expense', amount: travel, date, category: 'messe', eventId: ev.id, note: 'Fahrt & Sonstiges', createdAt: now + 2 });
       if (activeIn && activeIn.checked) s.settings.activeEventId = ev.id;
@@ -628,7 +664,8 @@ export function openQtyPad(product, qty, onSet) {
     hint: (n) => {
       if (!n) return '';
       const p = getProduct(product.id) || product;
-      return `${money(unitPriceFor(p, n) * n)}${p.stock != null && n > p.stock ? ` · nur ${p.stock} im Bestand` : ''}`;
+      const free = freeFor(p.bonus, n);
+      return `${money(unitPriceFor(p, n) * n)}${free ? ` · + ${free} gratis` : ''}${p.stock != null && n + free > p.stock ? ` · nur ${p.stock} im Bestand` : ''}`;
     },
     onSet: (n) => onSet(n || 0),
   });

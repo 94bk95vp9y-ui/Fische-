@@ -46,7 +46,7 @@ const csvCell = (v) => {
 const deNum = (cents) => (cents / 100).toFixed(2).replace('.', ',');
 
 export async function exportCsv() {
-  const rows = [['Datum', 'Art', 'Kanal', 'Messe', 'Kategorie', 'Artikel', 'Stück', 'Betrag (EUR)', 'Wirkung Kasse (EUR)', 'Status', 'Notiz']];
+  const rows = [['Datum', 'Art', 'Kanal', 'Messe', 'Kategorie', 'Artikel', 'Stück', 'Betrag (EUR)', 'Wirkung Kasse (EUR)', 'Status', 'Notiz', 'Abgabe (EUR)', 'Abgabe (%)']];
   for (const e of sortedEntries().reverse()) {
     const ev = e.eventId ? getEvent(e.eventId) : null;
     rows.push([
@@ -55,12 +55,14 @@ export async function exportCsv() {
       e.type === 'sale' ? (CHANNELS[e.channel] || CHANNELS.other).label : '',
       ev ? ev.name : '',
       e.type === 'expense' ? EXPENSE_CATS[e.category] || '' : '',
-      (e.items || []).map((i) => `${i.qty}x ${i.name} à ${deNum(i.unit)}`).join(', '),
-      (e.items || []).reduce((a, i) => a + i.qty, 0) || '',
+      (e.items || []).map((i) => `${i.qty}x ${i.name} à ${deNum(i.unit)}${i.free ? ` (+${i.free} gratis)` : ''}`).join(', '),
+      (e.items || []).reduce((a, i) => a + i.qty + (i.free || 0), 0) || '',
       deNum(e.amount),
       deNum(e.status === 'open' ? 0 : balanceEffect(e)),
       e.status === 'open' ? 'offen' : '',
       e.note || '',
+      e.fee ? deNum(e.fee) : '',
+      e.fee ? e.feeRate : '',
     ]);
   }
   const csv = '\uFEFF' + rows.map((r) => r.map(csvCell).join(';')).join('\r\n');
