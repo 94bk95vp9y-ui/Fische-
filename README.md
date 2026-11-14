@@ -11,9 +11,12 @@ Web-App fürs iPhone, mit der du den Verkauf von Fischen, Garnelen, Schnecken & 
 | **Artikel & Preise** (in der Kasse oben rechts oder unter „Mehr“) | Name, Stückpreis, Kategorie, Foto, Mengenrabatt („ab 10 Stück je 1,20 €“), Bestand (zählt bei Verkäufen automatisch runter), Link zur Anzeige. Preisänderungen gelten nur für neue Verkäufe; die letzten Preisänderungen werden angezeigt. Archivieren statt löschen, Reihenfolge der Kacheln sortierbar. |
 | **Aus Anzeige übernehmen (KI)** | Prompt kopieren → in ChatGPT/Claude/Gemini mit Screenshots der Anzeige einfügen → Antwort zurück in die App kopieren → prüfen → übernehmen. Gibt es den Artikel schon (gleicher Name), wird nur der Preis aktualisiert. Die App selbst enthält keine KI und schickt nichts ins Internet. |
 | **Messen & Börsen** | Messe mit Datum anlegen und entweder die Tageseinnahmen direkt eintragen oder im **Messe-Modus** jeden Verkauf in der Kasse zählen – er wird dann automatisch der Messe zugeordnet. Standgebühr und Fahrt werden als Kosten gebucht, die Messe zeigt ihren eigenen Gewinn. |
-| **Start** | Kassenstand als „Becken“ (pro heutigem Verkauf schwimmt ein Fisch darin), Tagesumsatz, Schnellzugriffe, aktueller Monat mit Balken „wie viel vom Umsatz bleibt“, offene Reservierungen, letzte Einträge. |
+| **Start** | Kassenstand als „Becken“ (pro heutigem Verkauf schwimmt ein Fisch darin), Tagesumsatz, Schnellzugriffe, offene Reservierungen, letzte Einträge. |
+| **Abgabe** | Fester Prozentsatz (Standard 10 %, unter „Mehr“ einstellbar, 0 = aus), der von jedem neuen Verkauf abgeht und den Gewinn mindert. Beim Kassieren pro Verkauf änderbar. |
+| **Gratis-Zugabe** | Pro Artikel einstellbar, z. B. „je 10 Stück 1 gratis“. Die Gratis-Stücke werden beim Verkauf automatisch mitgezählt und vom Bestand abgezogen. |
+| **Anzeigen kopieren** | Unter „Mehr“: Titel und Beschreibung aller Artikel in der Kasse als Text in die Zwischenablage, z. B. für eine KI. |
 | **Verlauf** | Alle Einträge nach Monaten, mit Filter und Suche. Antippen → Details, bearbeiten, löschen (mit „Rückgängig“). |
-| **Statistik** | Jahr mit 12-Monats-Diagramm, Monatstabelle, Umsatz nach Verkaufsweg, Ausgaben nach Kategorie, meistverkaufte Artikel, Summen seit Beginn. |
+| **Statistik** | Aktueller Monat mit Balken „wie viel vom Umsatz bleibt“, Jahr mit 12-Monats-Diagramm, Monatstabelle, Umsatz nach Verkaufsweg, Ausgaben nach Kategorie, meistverkaufte Artikel, Summen seit Beginn. |
 | **Darstellung** | Hell, dunkel oder automatisch nach Systemeinstellung (unter „Mehr“). |
 | **Kasse abgleichen** | Echtes Geld zählen, eintragen – die Differenz wird als Korrektur gebucht. |
 | **Datensicherung** | Backup als Datei (inkl. Fotos) über das Teilen-Menü, Backup laden, CSV-Export für Excel/Numbers. Erinnerung, wenn das letzte Backup älter als 30 Tage ist. |
@@ -21,7 +24,8 @@ Web-App fürs iPhone, mit der du den Verkauf von Fischen, Garnelen, Schnecken & 
 ### So wird gerechnet
 
 - **Umsatz** = alles, was Kunden tatsächlich bezahlt haben.
-- **Gewinn** = Umsatz − Ausgaben.
+- **Gewinn** = Umsatz − Abgabe − Ausgaben.
+- Die **Abgabe** mindert nur den Gewinn, nicht den Kassenstand. Ihr Satz wird am Verkauf gespeichert; Verkäufe von vor der Einführung haben keine Abgabe.
 - **Kassenstand** = Einlagen + Umsatz − Ausgaben − Privatentnahmen ± Abgleich.
 - Privatentnahmen und Einlagen ändern nur den Kassenstand, nicht den Gewinn.
 - Reservierte (noch nicht bezahlte) Verkäufe zählen erst ab „bezahlt“.

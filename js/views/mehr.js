@@ -1,14 +1,14 @@
-import { store, commit, replaceState, emptyState, activeEvent } from '../store.js';
+import { store, commit, replaceState, emptyState, activeEvent, activeProducts } from '../store.js';
 import { esc, fmtDateTime, isStandalone } from '../util.js';
 import { icon } from '../icons.js';
-import { CHANNELS, CHANNEL_KEYS } from '../model.js';
+import { CHANNELS, CHANNEL_KEYS, FEE_NAME } from '../model.js';
 import { seg } from '../components.js';
 import { openAdjust, openEntryForm } from '../sheets.js';
-import { openSheet, actionSheet, undoToast } from '../ui.js';
+import { openSheet, actionSheet, undoToast, openAmountPad, copyText, toast } from '../ui.js';
 import { exportBackup, importBackup, exportCsv, backupAgeDays } from '../backup.js';
 import { go } from '../nav.js';
 
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.1.0';
 
 const THEMES = [{ value: 'auto', label: 'Automatisch' }, { value: 'light', label: 'Hell' }, { value: 'dark', label: 'Dunkel' }];
 
@@ -40,10 +40,11 @@ export function mehrView(el) {
         </div>
         <section class="month-block"><div class="month-head"><h2>Kasse</h2></div>
           <div class="card list">
+            ${item('fee', 'tag', `${FEE_NAME} auf Verkäufe`, s.settings.feeRate > 0 ? `${s.settings.feeRate} %` : 'aus', '', 'c-accent')}
             ${item('adjust', 'scale', 'Mit echtem Geld abgleichen')}
             ${item('deposit', 'arrowDown', 'Einlage / Startbetrag', '', '', 'c-pos')}
             ${item('withdrawal', 'person', 'Privatentnahme', '', '', 'c-sand')}
-            <label class="row nav-row select-row"><span class="ricon c-brand">${icon('tag')}</span><span class="rmain"><span class="rtitle">Üblicher Verkaufsweg</span></span>
+            <label class="row nav-row select-row"><span class="ricon c-brand">${icon('tag')}</span><span class="rmain"><span class="rtitle">Verkaufsweg</span></span>
               <select class="in inline" data-setting="defaultChannel">${CHANNEL_KEYS.map((k) => `<option value="${k}" ${s.settings.defaultChannel === k ? 'selected' : ''}>${esc(CHANNELS[k].short)}</option>`).join('')}</select></label>
           </div>
         </section>
@@ -52,6 +53,7 @@ export function mehrView(el) {
             ${item('backup', 'share', 'Backup erstellen', age === null ? '<span class="neg">noch nie</span>' : age === 0 ? 'heute' : `vor ${age} ${age === 1 ? 'Tag' : 'Tagen'}`)}
             ${item('restore', 'import', 'Backup laden')}
             ${item('csv', 'file', 'Als Tabelle exportieren (CSV)')}
+            ${item('copy-ads', 'copy', 'Anzeigen als Text kopieren')}
           </div>
           <p class="hint">Alle Daten liegen nur auf diesem Gerät – es gibt keine Cloud. Speichere regelmäßig ein Backup in der Dateien-App oder iCloud Drive. Das Backup enthält auch die Fotos.</p>
         </section>
@@ -83,6 +85,14 @@ export function mehrView(el) {
       case 'artikel': go('artikel'); break;
       case 'messen': go('messen'); break;
       case 'adjust': openAdjust(); break;
+      case 'fee':
+        openAmountPad({
+          title: `${FEE_NAME} auf Verkäufe`, label: 'Prozent von jedem neuen Verkauf', integer: true, unit: '%', initial: store.state.settings.feeRate || null, allowEmpty: true,
+          hint: (n) => (n > 100 ? 'Höchstens 100 %' : n ? `Beispiel: 20,00 € Verkauf → ${(20 * n / 100).toFixed(2).replace('.', ',')} € ${FEE_NAME}` : `Leer = keine ${FEE_NAME}`),
+          onSet: (n) => { commit((st) => { st.settings.feeRate = Math.min(100, n || 0); }); },
+        });
+        break;
+      case 'copy-ads': copyAds(); break;
       case 'deposit': openEntryForm({ type: 'deposit' }); break;
       case 'withdrawal': openEntryForm({ type: 'withdrawal' }); break;
       case 'backup': exportBackup(); break;
@@ -104,6 +114,15 @@ export function mehrView(el) {
     }
   };
   return { render };
+}
+
+/** Titel + Beschreibung aller Artikel in der Kasse als Text in die Zwischenablage (z. B. für eine KI). */
+async function copyAds() {
+  const list = activeProducts();
+  if (!list.length) { toast('Noch keine Artikel in der Kasse'); return; }
+  const text = list.map((p, i) => `Anzeige ${i + 1}\nTitel: ${p.name}\nBeschreibung: ${(p.note || '').trim() || '(keine)'}`).join('\n\n');
+  const ok = await copyText(text);
+  toast(ok ? `${list.length} ${list.length === 1 ? 'Anzeige' : 'Anzeigen'} kopiert` : 'Kopieren nicht möglich');
 }
 
 export function showInstallHelp() {
@@ -132,10 +151,11 @@ export function showHowCalc() {
       <div class="group explain">
         <div><strong>Umsatz</strong><span>Alles, was Kunden bezahlt haben (Kasse, Schnell-Betrag, Messe-Einnahmen).</span></div>
         <div><strong>Ausgaben</strong><span>Was du fürs Hobby/Geschäft kaufst: Technik, neue Tiere, Futter, Versand, Standgebühr …</span></div>
-        <div><strong>Gewinn</strong><span>Umsatz − Ausgaben.</span></div>
+        <div><strong>${FEE_NAME}</strong><span>Fester Prozentsatz (einstellbar, Standard 10 %), der von jedem neuen Verkauf abgeht. Beispiel: 20 € Verkauf, 10 % → 2 € ${FEE_NAME}, 18 € bleiben. Der Satz lässt sich beim Kassieren pro Verkauf ändern. Frühere Verkäufe behalten ihren Satz.</span></div>
+        <div><strong>Gewinn</strong><span>Umsatz − ${FEE_NAME} − Ausgaben.</span></div>
         <div><strong>Privatentnahme</strong><span>Geld, das du dir selbst auszahlst. Senkt den Kassenstand, aber nicht den Gewinn.</span></div>
         <div><strong>Einlage</strong><span>Eigenes Geld, das du in die Kasse legst (z. B. Startbetrag). Erhöht den Kassenstand, ist aber kein Umsatz.</span></div>
-        <div><strong>Kassenstand</strong><span>Einlagen + Umsatz − Ausgaben − Entnahmen ± Abgleich. So viel Geld sollte gerade da sein.</span></div>
+        <div><strong>Kassenstand</strong><span>Einlagen + Umsatz − Ausgaben − Entnahmen ± Abgleich. So viel Geld sollte gerade da sein. Die ${FEE_NAME} mindert nur den Gewinn – das Geld liegt in der Kasse, bis du es entnimmst.</span></div>
         <div><strong>Offen / reserviert</strong><span>Zählt erst, wenn du „bezahlt“ antippst – mit dem Datum der Bezahlung.</span></div>
         <div><strong>Rabatt</strong><span>Zahlt ein Kunde weniger als die Summe, zählt der tatsächlich bezahlte Betrag. In der Artikel-Statistik wird der Rabatt anteilig verteilt.</span></div>
       </div>

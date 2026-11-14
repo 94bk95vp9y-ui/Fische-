@@ -7,6 +7,7 @@ import { openSheet } from '../ui.js';
 import { openProductEditor, openAiImport } from '../products.js';
 import { exportBackup, backupAgeDays } from '../backup.js';
 import { go } from '../nav.js';
+import { FEE_NAME } from '../model.js';
 import { showInstallHelp } from './mehr.js';
 
 // Feste „Schwimmbahnen“: Höhe, Größe, Dauer, Startversatz, Richtung.
@@ -117,22 +118,6 @@ export function homeView(el) {
           </div>
         </section>
 
-        <section class="sec">
-          <div class="sec-head"><h2>${esc(monthLabel(mk, { year: false }))}</h2><button type="button" class="link" data-go="monat/${mk}">Details ${icon('chevR', 'ic-sm')}</button></div>
-          <div class="card month-card" data-go="monat/${mk}" role="link" tabindex="0">
-            <div class="stats3">
-              ${statTile('<i class="dot"></i>Umsatz', money(m.revenue))}
-              ${statTile('<i class="dot b"></i>Ausgaben', money(m.expenses))}
-              ${statTile('Gewinn', money(m.profit), m.profit < 0 ? 'neg' : '')}
-            </div>
-            <div class="split-bar ${m.revenue > 0 ? 'has' : ''}" aria-hidden="true">${spent > 0 ? `<span style="width:${spent.toFixed(1)}%"></span>` : ''}</div>
-            <div class="month-foot">
-              <span>${esc(monthNote.join(' · '))}</span>
-              ${delta !== null ? `<span class="delta ${delta < 0 ? 'down' : ''}">${icon(delta < 0 ? 'arrowDown' : 'arrowUp')}${Math.abs(delta)} % ggü. ${esc(prevName)}</span>` : ''}
-            </div>
-          </div>
-        </section>
-
         ${open.length ? `
         <section class="sec">
           <div class="sec-head"><h2>Reserviert</h2><span class="muted num">${money(open.reduce((a, e) => a + e.amount, 0))} offen</span></div>
@@ -195,7 +180,8 @@ function openBalanceInfo() {
         ${row('Kassenstand', money(bal), 'total')}
       </div>
       <div class="group">
-        ${row('Gewinn (Umsatz − Ausgaben)', money(t.profit))}
+        ${t.fees ? row(`${FEE_NAME}`, money(-t.fees)) : ''}
+        ${row(t.fees ? `Gewinn (Umsatz − ${FEE_NAME} − Ausgaben)` : 'Gewinn (Umsatz − Ausgaben)', money(t.profit))}
       </div>
       <p class="hint">Der <strong>Kassenstand</strong> ist das Geld aus dem Verkauf, das gerade da sein sollte – bar und auf dem Konto zusammen. <strong>Entnahmen</strong> und <strong>Einlagen</strong> verändern nur den Kassenstand, nicht den Gewinn. Reservierte Verkäufe zählen erst, wenn sie bezahlt sind.</p>
       <button type="button" class="btn block" data-act="adjust">${icon('scale')}Mit echtem Geld abgleichen</button>`,
