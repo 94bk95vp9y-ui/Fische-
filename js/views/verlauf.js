@@ -2,7 +2,7 @@ import { store, sortedEntries, getMonth, getEvent } from '../store.js';
 import { esc, money, monthKey, monthLabel, centsToInput } from '../util.js';
 import { icon } from '../icons.js';
 import { entryRow, chips, empty } from '../components.js';
-import { entryTitle, EXPENSE_CATS, CHANNELS } from '../model.js';
+import { entryTitle, EXPENSE_CATS, CHANNELS, balanceEffect } from '../model.js';
 import { openEntryDetail, newEntryMenu } from '../sheets.js';
 
 const FILTERS = [
@@ -74,6 +74,11 @@ export function verlaufView(el) {
     if (!all.length) { list.innerHTML = '<p class="card-note center">Nichts gefunden.</p>'; return; }
     const shown = all.slice(0, limit);
     let html = '';
+    if (query || filter !== 'all') {
+      let plus = 0, minus = 0;
+      for (const e of all) { const b = balanceEffect(e); if (b > 0) plus += b; else minus += b; }
+      html += `<p class="result-sum"><span>${all.length} ${all.length === 1 ? 'Eintrag' : 'Einträge'}</span>${plus ? `<span class="pos">${money(plus, { sign: true })}</span>` : ''}${minus ? `<span class="neg">${money(minus)}</span>` : ''}</p>`;
+    }
     let cur = null;
     for (const e of shown) {
       const k = monthKey(e.date);

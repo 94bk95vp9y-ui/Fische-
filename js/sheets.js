@@ -1,24 +1,25 @@
 // Formulare und Detailansichten für Einträge (Verkauf, Ausgabe, Entnahme, Einlage, Abgleich, Messe).
-import { store, commit, getEvent, getProduct, sortedEvents, getBalance } from './store.js';
+import { store, commit, getEvent, getProduct, sortedEvents, getBalance, getFeePot, activeProducts } from './store.js';
 import { openSheet, actionSheet, createKeypad, undoToast, toast, confirmDanger, openAmountPad } from './ui.js';
 import { esc, money, uid, todayISO, isValidISO, fmtDateLong, fmtDateTime, fmtDate } from './util.js';
-import { CHANNELS, CHANNEL_KEYS, EXPENSE_CATS, EXPENSE_CAT_KEYS, ENTRY_TYPES, entryTitle, itemsQty, unitPriceFor, takeStock, returnStock, applyFee, feeFor, freeFor, FEE_NAME } from './model.js';
+import { CHANNELS, CHANNEL_KEYS, EXPENSE_CATS, EXPENSE_CAT_KEYS, ENTRY_TYPES, entryTitle, itemsQty, unitPriceFor, takeStock, returnStock, applyFee, feeFor, freeFor, fmtRate, FEE_NAME } from './model.js';
 import { seg, chips, bindChoice, sec, amountRow, setAmountRow } from './components.js';
 import { icon } from './icons.js';
 import { go } from './nav.js';
 
 const TYPE_OPTIONS = [
-  { value: 'sale', label: 'Verkauf' },
+  { value: 'sale', label: 'Einnahme' },
   { value: 'expense', label: 'Ausgabe' },
   { value: 'withdrawal', label: 'Entnahme' },
   { value: 'deposit', label: 'Einlage' },
 ];
 const HINTS = {
-  sale: 'Verkauf ohne einzelne Artikel',
+  sale: 'Einnahme ohne einzelne Artikel',
   expense: 'Mindert den Gewinn',
   withdrawal: 'Für dich privat – mindert nur den Kassenstand',
   deposit: 'Eigenes Geld in die Kasse – kein Umsatz',
 };
+const ENTRY_LABEL = { sale: 'Einnahme', expense: 'Ausgabe', withdrawal: 'Entnahme', deposit: 'Einlage' };
 const CHANNEL_OPTIONS = CHANNEL_KEYS.map((k) => ({ value: k, label: CHANNELS[k].short }));
 const eventRow = (selected, allowNone = false) =>
   `<div class="group"><label class="field row-field"><span class="field-label">${icon('stall')}Messe</span><select class="in" data-f="event" ${allowNone ? 'data-allow-none="1"' : ''}>${eventOptions(selected, { allowNone })}</select></label></div>`;
@@ -50,7 +51,60 @@ function bindEventSelect(select, getFallback) {
 }
 
 // ------------------------------------------------------------------
-// Schnell-Eintrag mit Ziffernblock (Verkauf ohne Artikel, Ausgabe, Entnahme, Einlage)
+// Rücklage: Zeile in Formularen + Eingabe des Prozentsatzes
+// ------------------------------------------------------------------
+const feeRowHtml = () => `<div class="group"><button type="button" class="field row-field amt-row" data-act="fee">
+  <span class="field-label">${icon('tag')}<span data-feelabel></span></span><span class="amt-val" data-feeval></span></button></div>`;
+
+function renderFee(body, rate, amount) {
+  const l = body.querySelector('[data-feelabel]');
+  if (!l) return;
+  const fee = feeFor(amount || 0, rate);
+  l.innerHTML = rate > 0 ? `${FEE_NAME} ${fmtRate(rate)} %${amount ? `<small>bleiben ${esc(money(amount - fee))}</small>` : ''}` : FEE_NAME;
+  const fv = body.querySelector('[data-feeval]');
+  fv.textContent = rate > 0 ? (amount ? money(-fee) : `${fmtRate(rate)} %`) : 'keine';
+  fv.classList.toggle('empty', !(rate > 0));
+}
+
+/** Prozentsatz eingeben (auch mit Komma, z. B. 7,5). amount = Betrag des Verkaufs für die Vorschau. */
+export function openFeePad({ title, rate, amount = null, onSet }) {
+  openAmountPad({
+    title, label: amount ? 'Prozent vom bezahlten Betrag' : 'Prozent von jedem neuen Verkauf', unit: '%',
+    initial: rate ? Math.round(rate * 100) : null, allowEmpty: true,
+    hint: (c) => {
+      const r = (c || 0) / 100;
+      if (r > 100) return 'Höchstens 100 %';
+      if (!r) return `Leer = keine ${FEE_NAME}`;
+      const a = amount || 2000;
+      return `${amount ? '' : 'Beispiel: '}${money(a)} → ${money(feeFor(a, r))} ${FEE_NAME}, ${money(a - feeFor(a, r))} bleiben`;
+    },
+    onSet: (c) => onSet(Math.min(100, (c || 0) / 100)),
+  });
+}
+
+/** Häufige frühere Ausgaben als Vorschläge (Titel + zuletzt benutzte Kategorie) */
+function expenseSuggestions() {
+  const m = new Map();
+  for (const e of store.state.entries) {
+    if (e.type !== 'expense' || !e.note || e.eventId) continue;
+    const k = e.note.trim();
+    const c = m.get(k) || { note: k, n: 0, category: e.category, last: 0 };
+    c.n++;
+    if ((e.createdAt || 0) >= c.last) { c.last = e.createdAt || 0; c.category = e.category; }
+    m.set(k, c);
+  }
+  return [...m.values()].sort((a, b) => b.n - a.n || b.last - a.last).slice(0, 5);
+}
+
+const NOTE_PH = {
+  sale: 'Notiz, z. B. Name des Käufers',
+  expense: 'Was war das? z. B. LED-Lampe',
+  withdrawal: 'Notiz (optional)',
+  deposit: 'Notiz (optional)',
+};
+
+// ------------------------------------------------------------------
+// Schnell-Eintrag mit Ziffernblock (Einnahme ohne Artikel, Ausgabe, Entnahme, Einlage)
 // ------------------------------------------------------------------
 export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {}) {
   const editing = !!entry;
@@ -60,33 +114,41 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
     type: entry ? entry.type : type,
     channel: entry?.channel || preset.channel || (activeEv ? 'messe' : st.settings.defaultChannel || 'ka'),
     eventId: entry?.eventId || preset.eventId || (activeEv && (type === 'sale' || preset.channel === 'messe') ? activeEv.id : ''),
-    category: entry?.category || preset.category || 'technik',
+    category: entry?.category || preset.category || st.settings.lastExpenseCat || 'technik',
     date: entry?.date || preset.date || todayISO(),
     note: entry?.note || preset.note || '',
+    feeRate: editing ? entry.feeRate || 0 : st.settings.feeRate || 0,
+    fromFee: !!entry?.fromFee,
   };
   if (v.type === 'sale' && v.eventId) v.channel = 'messe';
+  // Topf inkl. des Betrags, den dieser Eintrag (beim Bearbeiten) selbst schon daraus genommen hat
+  const pot = getFeePot() + (entry?.fromFee ? entry.amount : 0);
+  const sugg = editing ? [] : expenseSuggestions();
+  let touched = false;
 
-  const typeLabel = (t) => (editing ? `${ENTRY_TYPES[t].label} bearbeiten` : 'Neuer Eintrag');
   const sheet = openSheet({
-    title: typeLabel(v.type),
+    title: editing ? `${ENTRY_LABEL[v.type]} ändern` : 'Neuer Eintrag',
     right: 'Speichern',
     cls: 'sheet-keypad',
-    dirty: () => kp.getCents() !== (entry ? entry.amount : null) && kp.buffer !== '',
+    dirty: () => touched || (kp.buffer !== '' && kp.getCents() !== (entry ? entry.amount : null)),
     content: `
       ${editing ? '' : seg('type', TYPE_OPTIONS, v.type, 'seg-type')}
       <div class="amount-display" data-display>
         <span class="amount-value"><span data-amt>0</span> €</span>
         <span class="amount-hint" data-hint></span>
       </div>
+      <div class="group">
+        <label class="field row-field"><span class="field-label">${icon('pencil')}</span><input type="text" class="in left" data-f="note" value="${esc(v.note)}" enterkeyhint="done" maxlength="140" autocomplete="off" aria-label="Beschreibung"></label>
+      </div>
       <div class="contents" data-typefields></div>
       <div class="group compact">
         <label class="field row-field"><span class="field-label">${icon('calendar')}Datum</span><input type="date" class="in" data-f="date" value="${esc(v.date)}"></label>
-        <label class="field row-field"><span class="field-label">${icon('pencil')}Notiz</span><input type="text" class="in" data-f="note" value="${esc(v.note)}" placeholder="optional" enterkeyhint="done" maxlength="140"></label>
       </div>`,
     foot: '',
     onRight: () => save(),
   });
   const body = sheet.body;
+  const noteIn = body.querySelector('[data-f="note"]');
   const kp = createKeypad({ initial: entry ? entry.amount : null, onChange: () => updateDisplay() });
   sheet.foot.appendChild(kp.el);
 
@@ -95,9 +157,12 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
     let html = '';
     if (v.type === 'sale') {
       html = sec('Verkauft über', seg('channel', CHANNEL_OPTIONS, v.channel)) +
-        (v.channel === 'messe' ? eventRow(v.eventId) : '');
+        (v.channel === 'messe' ? eventRow(v.eventId) : '') + feeRowHtml();
     } else if (v.type === 'expense') {
-      html = sec('Wofür?', chips('category', EXPENSE_CAT_KEYS.map((k) => ({ value: k, label: EXPENSE_CATS[k] })), v.category)) +
+      html = (sugg.length ? `<div class="chips scroll" data-sugg ${noteIn.value.trim() ? 'hidden' : ''}>${sugg.map((x, i) => `<button type="button" class="chip" data-sugg-i="${i}">${esc(x.note)}</button>`).join('')}</div>` : '') +
+        sec('Kategorie', chips('category', EXPENSE_CAT_KEYS.map((k) => ({ value: k, label: EXPENSE_CATS[k] })), v.category, 'scroll')) +
+        (pot > 0 || v.fromFee ? `<div class="group"><label class="switch-row"><span><strong>Aus der ${FEE_NAME} bezahlen</strong><small>Im Topf: ${money(pot)}. Mindert den Gewinn nicht noch einmal.</small></span>
+          <input type="checkbox" class="switch" data-f="fromfee" ${v.fromFee ? 'checked' : ''}></label></div>` : '') +
         (st.events.length ? eventRow(v.eventId, true) : '');
     }
     fields.innerHTML = html;
@@ -107,12 +172,16 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
       sel.addEventListener('change', () => { if (sel.value !== '__new') v.eventId = sel.value; });
       if (v.type === 'sale' && !v.eventId && sel.value && sel.value !== '__new') v.eventId = sel.value;
     }
-    const rate = editing ? entry.feeRate || 0 : st.settings.feeRate || 0;
-    body.querySelector('[data-hint]').textContent = (HINTS[v.type] || '') + (v.type === 'sale' && rate > 0 ? ` · ${rate} % ${FEE_NAME}` : '');
+    const on = fields.querySelector('.chips.scroll .chip.on');
+    if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
+    noteIn.placeholder = NOTE_PH[v.type] || 'Notiz (optional)';
+    body.querySelector('[data-hint]').textContent = HINTS[v.type] || '';
+    renderFee(body, v.feeRate, kp.getCents());
   }
   function updateDisplay() {
     body.querySelector('[data-amt]').textContent = kp.display();
     body.querySelector('[data-display]').classList.toggle('is-empty', !kp.buffer);
+    renderFee(body, v.feeRate, kp.getCents());
   }
   bindChoice(body, '[data-seg="type"]', (val) => {
     v.type = val;
@@ -124,7 +193,27 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
     if (val === 'messe' && !v.eventId) v.eventId = activeEv?.id || sortedEvents()[0]?.id || '';
     renderTypeFields();
   });
-  bindChoice(body, '[data-chips="category"]', (val) => { v.category = val; });
+  bindChoice(body, '[data-chips="category"]', (val) => { v.category = val; touched = true; });
+  noteIn.addEventListener('input', () => {
+    touched = true;
+    const w = body.querySelector('[data-sugg]');
+    if (w) w.hidden = !!noteIn.value.trim();
+  });
+  body.addEventListener('change', (e) => {
+    if (e.target.matches('[data-f="fromfee"]')) { v.fromFee = e.target.checked; touched = true; }
+  });
+  body.addEventListener('click', (e) => {
+    const sg = e.target.closest('[data-sugg-i]');
+    if (sg) {
+      const x = sugg[+sg.dataset.suggI];
+      noteIn.value = x.note; v.category = x.category; touched = true;
+      renderTypeFields();
+      return;
+    }
+    if (e.target.closest('[data-act="fee"]')) {
+      openFeePad({ title: FEE_NAME, rate: v.feeRate, amount: kp.getCents(), onSet: (r) => { v.feeRate = r; touched = true; renderFee(body, v.feeRate, kp.getCents()); } });
+    }
+  });
   renderTypeFields();
   updateDisplay();
 
@@ -138,33 +227,38 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
     }
     let date = body.querySelector('[data-f="date"]').value;
     if (!isValidISO(date)) date = todayISO();
-    const note = body.querySelector('[data-f="note"]').value.trim();
+    const note = noteIn.value.trim();
     if (v.type === 'sale' && v.channel === 'messe' && !v.eventId) {
       toast('Bitte eine Messe auswählen oder anlegen');
       return false;
     }
     const data = { type: v.type, amount, date, note };
     if (v.type === 'sale') { data.channel = v.channel; data.eventId = v.channel === 'messe' ? v.eventId : null; }
-    if (v.type === 'expense') { data.category = v.category; data.eventId = v.eventId || null; }
+    if (v.type === 'expense') { data.category = v.category; data.eventId = v.eventId || null; data.fromFee = v.fromFee; }
+    const tidy = (e) => {
+      applyFee(e, v.feeRate);
+      if (e.type !== 'sale') delete e.channel;
+      if (e.type !== 'expense') { delete e.category; delete e.fromFee; }
+      if (!e.fromFee) delete e.fromFee;
+      if (!e.eventId) delete e.eventId;
+    };
+    const remember = (s) => { if (v.type === 'expense') s.settings.lastExpenseCat = v.category; };
 
     if (editing) {
       const undo = commit((s) => {
         const e = s.entries.find((x) => x.id === entry.id);
         if (!e) return;
         Object.assign(e, data, { updatedAt: Date.now() });
-        applyFee(e, e.feeRate || 0);
-        if (e.type !== 'sale') { delete e.channel; }
-        if (e.type !== 'expense') { delete e.category; }
-        if (!e.eventId) delete e.eventId;
+        tidy(e);
+        remember(s);
       });
       undoToast('Änderung gespeichert', undo);
     } else {
       const e = { id: uid(), ...data, createdAt: Date.now() };
-      applyFee(e, st.settings.feeRate || 0);
-      if (!e.eventId) delete e.eventId;
-      const undo = commit((s) => { s.entries.push(e); });
+      tidy(e);
+      const undo = commit((s) => { s.entries.push(e); remember(s); });
       const sign = v.type === 'sale' || v.type === 'deposit' ? money(amount, { sign: true }) : money(-amount);
-      undoToast(`${ENTRY_TYPES[v.type].label} gespeichert · ${sign}`, undo);
+      undoToast(`${ENTRY_LABEL[v.type]} gespeichert · ${sign}`, undo);
     }
     return true;
   }
@@ -184,9 +278,11 @@ export function openEntryDetail(id) {
     rows.push(['Verkauft über', esc((CHANNELS[e.channel] || CHANNELS.other).label)]);
   }
   if (ev) rows.push(['Messe', `<button type="button" class="link" data-act="event">${esc(ev.name)} ${icon('chevR')}</button>`]);
+  if (e.type === 'expense' && e.note) rows.push(['Was', esc(e.note)]);
   if (e.type === 'expense') rows.push(['Kategorie', esc(EXPENSE_CATS[e.category] || 'Sonstiges')]);
-  if (e.note) rows.push(['Notiz', esc(e.note)]);
-  if (e.type === 'sale' && e.fee) rows.push([`${FEE_NAME} (${e.feeRate} %)`, `${money(-e.fee)} <small class="muted">bleiben ${money(e.amount - e.fee)}</small>`]);
+  if (e.note && e.type !== 'expense') rows.push([e.status === 'open' ? 'Für wen' : 'Notiz', esc(e.note)]);
+  if (e.fromFee) rows.push(['Bezahlt aus', esc(FEE_NAME)]);
+  if (e.type === 'sale' && e.fee) rows.push([`${FEE_NAME} (${fmtRate(e.feeRate)} %)`, `${money(-e.fee)} <small class="muted">bleiben ${money(e.amount - e.fee)}</small>`]);
   if (e.status === 'open') rows.push(['Status', '<em class="pill">offen – noch nicht bezahlt</em>']);
   rows.push(['Erfasst', esc(fmtDateTime(e.createdAt || Date.now()))]);
   if (e.updatedAt) rows.push(['Geändert', esc(fmtDateTime(e.updatedAt))]);
@@ -222,7 +318,7 @@ export function openEntryDetail(id) {
       ${e.status === 'open' ? `<button type="button" class="btn primary block" data-act="paid">${icon('check')}Als bezahlt markieren</button>` : ''}
       <div class="group">${rows.map(([k, val]) => `<div class="kv"><span>${k}</span><span>${val}</span></div>`).join('')}</div>
       ${itemsHtml}
-      <button type="button" class="btn danger block" data-act="delete">${icon('trash')}Eintrag löschen</button>`,
+      <button type="button" class="btn danger block" data-act="delete">${icon('trash')}${e.status === 'open' ? 'Reservierung aufheben' : 'Eintrag löschen'}</button>`,
   });
   sheet.body.addEventListener('click', async (evt) => {
     const a = evt.target.closest('[data-act]');
@@ -231,7 +327,7 @@ export function openEntryDetail(id) {
     if (a.dataset.act === 'paid') { sheet.close(); markPaid(e.id); }
     if (a.dataset.act === 'delete') {
       const hasStock = (e.items || []).some((i) => getProduct(i.pid)?.stock != null);
-      const ok = await confirmDanger(hasStock ? 'Der Bestand der Artikel wird wieder zurückgebucht.' : 'Das lässt sich direkt danach noch rückgängig machen.', 'Eintrag löschen');
+      const ok = await confirmDanger(hasStock ? 'Der Bestand der Artikel wird wieder zurückgebucht.' : 'Das lässt sich direkt danach noch rückgängig machen.', e.status === 'open' ? 'Reservierung aufheben' : 'Eintrag löschen');
       if (!ok) return;
       sheet.close();
       deleteEntry(e.id);
@@ -284,22 +380,25 @@ function discountText(paid, listTotal) {
   return d < 0 ? `Rabatt ${money(-d)}` : `Aufpreis ${money(d)}`;
 }
 
+const pieces = (x) => x.qty + (x.free || 0); // inkl. Gratis-Zugabe
+
 export function openSaleEdit(id) {
   const orig = store.state.entries.find((x) => x.id === id);
   if (!orig) return;
   const items = orig.items.map((i) => ({ ...i }));
-  const v = { channel: orig.channel || 'ka', eventId: orig.eventId || '', paid: orig.amount };
+  const v = { channel: orig.channel || 'ka', eventId: orig.eventId || '', paid: orig.amount, feeRate: orig.feeRate || 0 };
   let paidTouched = orig.amount !== orig.listTotal;
   let changed = false;
   const listTotal = () => items.reduce((a, i) => a + i.unit * i.qty, 0);
 
   const sheet = openSheet({
-    title: 'Verkauf bearbeiten',
+    title: 'Verkauf ändern',
     right: 'Speichern',
     dirty: () => changed,
     content: `
       ${sec('Artikel', '<div class="group" data-items></div>')}
       <div class="group">${amountRow('paid', 'Kunde hat bezahlt', v.paid)}</div>
+      ${feeRowHtml()}
       ${sec('Verkauft über', seg('channel', CHANNEL_OPTIONS, v.channel))}
       <div class="contents" data-eventwrap></div>
       <div class="group compact">
@@ -311,6 +410,7 @@ export function openSaleEdit(id) {
   const body = sheet.body;
   body.addEventListener('input', () => { changed = true; });
   body.addEventListener('change', () => { changed = true; });
+  const addable = () => activeProducts().filter((p) => !items.some((i) => i.pid === p.id));
   function renderItems() {
     body.querySelector('[data-items]').innerHTML = items.map((i, idx) => `
       <div class="line edit ${i.qty === 0 ? 'removed' : ''}">
@@ -320,13 +420,20 @@ export function openSaleEdit(id) {
           <span>${i.qty}</span>
           <button type="button" data-step="1" data-idx="${idx}" aria-label="mehr">${icon('plus')}</button>
         </span>
-      </div>`).join('') + `<div class="line total"><span>Summe laut Preisen</span><span>${money(listTotal())}</span></div>`;
+      </div>`).join('') +
+      (addable().length ? `<button type="button" class="row add-row" data-act="add-item">${icon('plus')}<span>Artikel hinzufügen</span></button>` : '') +
+      `<div class="line total"><span>Summe laut Preisen</span><span>${money(listTotal())}</span></div>`;
   }
+  const syncPaid = () => {
+    if (!paidTouched) { v.paid = listTotal(); setAmountRow(body, 'paid', v.paid); }
+    renderFee(body, v.feeRate, v.paid);
+  };
   renderItems();
+  renderFee(body, v.feeRate, v.paid);
   const renderEvent = bindEventWrap(body, v);
   bindChoice(body, '[data-seg="channel"]', (val) => { v.channel = val; changed = true; renderEvent(); });
 
-  body.addEventListener('click', (e) => {
+  body.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-step]');
     if (b) {
       const it = items[+b.dataset.idx];
@@ -334,7 +441,24 @@ export function openSaleEdit(id) {
       if (it.bonus) it.free = freeFor(it.bonus, it.qty);
       changed = true;
       renderItems();
-      if (!paidTouched) { v.paid = listTotal(); setAmountRow(body, 'paid', v.paid); }
+      syncPaid();
+      return;
+    }
+    if (e.target.closest('[data-act="add-item"]')) {
+      const list = addable();
+      const pid = await actionSheet({ title: 'Artikel hinzufügen', actions: list.map((p) => ({ label: `${p.name} · ${money(p.price)}`, value: p.id })) });
+      const p = pid && getProduct(pid);
+      if (!p) return;
+      const it = { pid: p.id, name: p.name, qty: 1, unit: p.price, total: p.price, taken: 0, isNew: true };
+      if (p.bonus) { it.bonus = { per: p.bonus.per, free: p.bonus.free }; it.free = freeFor(it.bonus, 1); }
+      items.push(it);
+      changed = true;
+      renderItems();
+      syncPaid();
+      return;
+    }
+    if (e.target.closest('[data-act="fee"]')) {
+      openFeePad({ title: FEE_NAME, rate: v.feeRate, amount: v.paid, onSet: (r) => { v.feeRate = r; changed = true; renderFee(body, v.feeRate, v.paid); } });
       return;
     }
     if (e.target.closest('[data-amt="paid"]')) {
@@ -342,7 +466,7 @@ export function openSaleEdit(id) {
         title: 'Kunde hat bezahlt', initial: v.paid,
         hint: (c) => discountText(c, listTotal()),
         quick: [{ label: `Summe ${money(listTotal())}`, value: listTotal() }],
-        onSet: (c) => { v.paid = c; paidTouched = true; changed = true; setAmountRow(body, 'paid', c); },
+        onSet: (c) => { v.paid = c; paidTouched = true; changed = true; setAmountRow(body, 'paid', c); renderFee(body, v.feeRate, v.paid); },
       });
     }
   });
@@ -360,7 +484,6 @@ export function openSaleEdit(id) {
       // Bestand um die Differenz korrigieren
       e.items.forEach((old, idx) => {
         const now = items[idx];
-        const pieces = (x) => x.qty + (x.free || 0); // inkl. Gratis-Zugabe
         const diff = (now ? pieces(now) : 0) - pieces(old);
         const p = s.products.find((x) => x.id === old.pid);
         const taken = old.taken ?? pieces(old);
@@ -368,10 +491,12 @@ export function openSaleEdit(id) {
         if (diff > 0) { if (now) now.taken = taken + takeStock(p, diff); }
         else { const give = Math.min(-diff, taken); p.stock += give; if (now) now.taken = taken - give; }
       });
-      e.items = kept.map((i) => ({ ...i, total: i.unit * i.qty }));
+      // Neu hinzugefügte Artikel
+      for (const now of items.slice(e.items.length)) now.taken = takeStock(s.products.find((x) => x.id === now.pid), pieces(now));
+      e.items = kept.map(({ isNew, ...i }) => ({ ...i, total: i.unit * i.qty }));
       e.listTotal = e.items.reduce((a, i) => a + i.total, 0);
       e.amount = v.paid;
-      applyFee(e, e.feeRate || 0);
+      applyFee(e, v.feeRate);
       e.channel = v.channel;
       if (v.channel === 'messe') e.eventId = v.eventId; else delete e.eventId;
       e.date = date;
@@ -389,22 +514,25 @@ export function openSaleEdit(id) {
 let showChange = false; // „Rückgeld“ bleibt offen, wenn man es einmal benutzt hat
 
 export function openCheckout(lines, onDone) {
-  // lines: [{product, qty, unit, total}]
+  // lines: [{product, qty, unit, total, free}]
   const st = store.state;
-  const listTotal = lines.reduce((a, l) => a + l.total, 0);
+  const goods = lines.reduce((a, l) => a + l.total, 0);
   const activeEv = st.settings.activeEventId && getEvent(st.settings.activeEventId);
   const v = {
     channel: activeEv ? 'messe' : st.settings.defaultChannel || 'ka',
     eventId: activeEv ? activeEv.id : '',
-    paid: listTotal,
+    paid: goods,
     given: null,
     feeRate: st.settings.feeRate || 0,
+    extra: null, // freier Betrag für etwas, das kein Artikel ist
   };
+  let paidTouched = false;
+  const listTotal = () => goods + (v.extra || 0);
   const qty = lines.reduce((a, l) => a + l.qty + (l.free || 0), 0);
 
   const sheet = openSheet({
     title: 'Verkauf',
-    right: 'Speichern',
+    right: 'Verkauf speichern',
     content: `
       <section class="pay">
         <span class="pay-label">Kunde zahlt</span>
@@ -419,33 +547,32 @@ export function openCheckout(lines, onDone) {
       </section>
       ${sec('Verkauft über', seg('channel', CHANNEL_OPTIONS, v.channel))}
       <div class="contents" data-eventwrap></div>
-      ${sec(`Artikel · ${qty} Stück`, `<div class="group">
-        ${lines.map((l) => `<div class="line"><span class="line-name">${esc(l.product.name)}<small>${l.qty} × ${money(l.unit)}${l.unit !== l.product.price ? ' · Staffelpreis' : ''}${l.free ? ` · + ${l.free} gratis` : ''}</small></span><span class="line-amt">${money(l.total)}</span></div>`).join('')}
-        <div class="line total"><span>Summe</span><span>${money(listTotal)}</span></div>
-      </div>`)}
-      <div class="group">
-        <button type="button" class="field row-field amt-row" data-act="fee">
-          <span class="field-label">${icon('tag')}<span data-feelabel></span></span>
-          <span class="amt-val" data-feeval></span>
-        </button>
-      </div>
-      <div class="group compact">
-        <label class="field row-field"><span class="field-label">${icon('calendar')}Datum</span><input type="date" class="in" data-f="date" value="${todayISO()}"></label>
-        <label class="field row-field"><span class="field-label">${icon('pencil')}Notiz</span><input type="text" class="in" data-f="note" placeholder="z. B. Name des Käufers" maxlength="140"></label>
-      </div>
+      ${sec(`Artikel · ${qty} Stück`, '<div class="group" data-lines></div>')}
+      ${feeRowHtml()}
       <div class="group">
         <label class="switch-row"><span><strong>Noch nicht bezahlt</strong><small>Reserviert, Abholung später. Zählt erst nach „bezahlt“ als Umsatz.</small></span>
           <input type="checkbox" class="switch" data-f="open"></label>
+        <label class="field row-field"><span class="field-label">${icon('pencil')}<span data-notelabel>Notiz</span></span><input type="text" class="in" data-f="note" placeholder="z. B. Name des Käufers" maxlength="140" autocomplete="off"></label>
+        <label class="field row-field"><span class="field-label">${icon('calendar')}Datum</span><input type="date" class="in" data-f="date" value="${todayISO()}"></label>
       </div>`,
     onRight: () => save(),
   });
   const body = sheet.body;
+  const openIn = body.querySelector('[data-f="open"]');
+  const noteIn = body.querySelector('[data-f="note"]');
 
+  function renderLines() {
+    body.querySelector('[data-lines]').innerHTML =
+      lines.map((l) => `<div class="line"><span class="line-name">${esc(l.product.name)}<small>${l.qty} × ${money(l.unit)}${l.unit !== l.product.price ? ' · Staffelpreis' : ''}${l.free ? ` · + ${l.free} gratis` : ''}</small></span><span class="line-amt">${money(l.total)}</span></div>`).join('') +
+      (v.extra ? `<button type="button" class="line" data-act="extra"><span class="line-name">Sonstiges<small>ohne Artikel · antippen zum Ändern</small></span><span class="line-amt">${money(v.extra)}</span></button>`
+        : `<button type="button" class="row add-row" data-act="extra">${icon('plus')}<span>Betrag ohne Artikel dazu</span></button>`) +
+      `<div class="line total"><span>Summe</span><span>${money(listTotal())}</span></div>`;
+  }
   function renderPay() {
     body.querySelector('[data-paid]').textContent = money(v.paid);
-    const d = discountText(v.paid, listTotal);
+    const d = discountText(v.paid, listTotal());
     body.querySelector('[data-paysub]').innerHTML = d
-      ? `Summe ${esc(money(listTotal))} · <strong>${esc(d)}</strong>`
+      ? `Summe ${esc(money(listTotal()))} · <strong>${esc(d)}</strong>`
       : 'Antippen zum Ändern, z. B. bei Rabatt';
     // Scheine, die für den Betrag reichen (max. 3) + „Anderer“
     const notes = [500, 1000, 2000, 5000, 10000].filter((n) => n >= v.paid).slice(0, 3);
@@ -454,32 +581,38 @@ export function openCheckout(lines, onDone) {
       notes.map((n) => `<button type="button" class="chip ${v.given === n ? 'on' : ''}" data-given-v="${n}">${money(n, { round: true })}</button>`).join('') +
       `<button type="button" class="chip ${v.given !== null && !notes.includes(v.given) ? 'on' : ''}" data-given-v="other">${v.given !== null && !notes.includes(v.given) ? esc(money(v.given)) : 'Anderer'}</button>`;
     body.querySelector('[data-change]').textContent = v.given !== null ? `Rückgeld ${money(v.given - v.paid)}` : '';
-    const fee = feeFor(v.paid, v.feeRate);
-    body.querySelector('[data-feelabel]').innerHTML = v.feeRate > 0 ? `${FEE_NAME} ${v.feeRate} %<small>bleiben ${esc(money(v.paid - fee))}</small>` : FEE_NAME;
-    const fv = body.querySelector('[data-feeval]');
-    fv.textContent = v.feeRate > 0 ? money(-fee) : 'keine';
-    fv.classList.toggle('empty', !(v.feeRate > 0));
+    renderFee(body, v.feeRate, v.paid);
+    sheet.setRight(openIn.checked ? `Reservieren · ${money(v.paid)} offen` : `Verkauf speichern · ${money(v.paid)}`);
   }
+  renderLines();
   renderPay();
   const renderEvent = bindEventWrap(body, v);
   bindChoice(body, '[data-seg="channel"]', (val) => { v.channel = val; renderEvent(); });
+  openIn.addEventListener('change', () => {
+    body.querySelector('[data-notelabel]').textContent = openIn.checked ? 'Für wen?' : 'Notiz';
+    noteIn.placeholder = openIn.checked ? 'z. B. Martin, Abholung Samstag' : 'z. B. Name des Käufers';
+    renderPay();
+  });
 
   body.addEventListener('click', (e) => {
     if (e.target.closest('[data-act="paid"]')) {
       openAmountPad({
         title: 'Kunde zahlt', initial: v.paid,
-        hint: (c) => discountText(c, listTotal),
-        quick: [{ label: `Summe ${money(listTotal)}`, value: listTotal }],
-        onSet: (c) => { v.paid = c; renderPay(); },
+        hint: (c) => discountText(c, listTotal()),
+        quick: [{ label: `Summe ${money(listTotal())}`, value: listTotal() }],
+        onSet: (c) => { v.paid = c; paidTouched = true; renderPay(); },
+      });
+      return;
+    }
+    if (e.target.closest('[data-act="extra"]')) {
+      openAmountPad({
+        title: 'Betrag ohne Artikel', label: 'z. B. Futterprobe, Tüte, Sonstiges', initial: v.extra, allowEmpty: true,
+        onSet: (c) => { v.extra = c > 0 ? c : null; if (!paidTouched) v.paid = listTotal(); renderLines(); renderPay(); },
       });
       return;
     }
     if (e.target.closest('[data-act="fee"]')) {
-      openAmountPad({
-        title: `${FEE_NAME} für diesen Verkauf`, label: 'Prozent vom bezahlten Betrag', integer: true, unit: '%', initial: v.feeRate || null, allowEmpty: true,
-        hint: (n) => (n > 100 ? 'Höchstens 100 %' : n ? `${money(-feeFor(v.paid, n))} · bleiben ${money(v.paid - feeFor(v.paid, n))}` : `Leer = keine ${FEE_NAME}`),
-        onSet: (n) => { v.feeRate = Math.min(100, n || 0); renderPay(); },
-      });
+      openFeePad({ title: FEE_NAME, rate: v.feeRate, amount: v.paid, onSet: (r) => { v.feeRate = r; renderPay(); } });
       return;
     }
     if (e.target.closest('[data-act="change"]')) {
@@ -508,10 +641,10 @@ export function openCheckout(lines, onDone) {
     if (v.channel === 'messe' && !v.eventId) { toast('Bitte eine Messe auswählen oder anlegen'); return false; }
     let date = body.querySelector('[data-f="date"]').value;
     if (!isValidISO(date)) date = todayISO();
-    const note = body.querySelector('[data-f="note"]').value.trim();
-    const isOpen = body.querySelector('[data-f="open"]').checked;
+    const note = noteIn.value.trim();
+    const isOpen = openIn.checked;
     const e = {
-      id: uid(), type: 'sale', date, amount: v.paid, listTotal,
+      id: uid(), type: 'sale', date, amount: v.paid, listTotal: listTotal(),
       items: lines.map((l) => {
         const it = { pid: l.product.id, name: l.product.name, qty: l.qty, unit: l.unit, total: l.total, taken: 0 };
         if (l.free) { it.free = l.free; it.bonus = { per: l.product.bonus.per, free: l.product.bonus.free }; }
@@ -519,6 +652,7 @@ export function openCheckout(lines, onDone) {
       }),
       channel: v.channel, note, createdAt: Date.now(),
     };
+    if (v.extra) e.items.push({ pid: null, name: 'Sonstiges', qty: 1, unit: v.extra, total: v.extra, taken: 0 });
     applyFee(e, v.feeRate);
     if (v.channel === 'messe') e.eventId = v.eventId;
     if (isOpen) e.status = 'open';
@@ -674,7 +808,7 @@ export function openQtyPad(product, qty, onSet) {
 export async function newEntryMenu() {
   const r = await actionSheet({
     actions: [
-      { label: 'Verkauf zählen (Kasse)', value: 'kasse', icon: 'basket' },
+      { label: 'Verkauf mit Artikeln (Kasse)', value: 'kasse', icon: 'basket' },
       { label: 'Einnahme ohne Artikel', value: 'sale', icon: 'arrowDown' },
       { label: 'Ausgabe', value: 'expense', icon: 'arrowUp' },
       { label: 'Privatentnahme', value: 'withdrawal', icon: 'person' },

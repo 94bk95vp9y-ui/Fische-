@@ -53,11 +53,15 @@ export function balanceEffect(e) {
 }
 
 /**
- * Abgabe: fester Prozentsatz, der von jedem Verkauf abgeht und den Gewinn mindert.
+ * Rücklage: fester Prozentsatz, der von jedem Verkauf abgeht und den Gewinn mindert.
+ * Gedacht als Topf für Anschaffungen (Technik, Upgrades …). Ausgaben, die „aus der Rücklage“
+ * bezahlt werden (fromFee), mindern den Gewinn nicht noch einmal, sondern leeren den Topf.
  * Der Satz wird beim Verkauf am Eintrag gespeichert (feeRate) – spätere Änderungen
  * in den Einstellungen gelten nur für neue Verkäufe.
  */
-export const FEE_NAME = 'Abgabe';
+export const FEE_NAME = 'Rücklage';
+/** 7.5 -> "7,5" */
+export const fmtRate = (r) => String(Math.round(r * 100) / 100).replace('.', ',');
 export const feeFor = (amount, rate) => (rate > 0 ? Math.round((amount * rate) / 100) : 0);
 /** Abgabe an einem Verkaufs-Eintrag setzen bzw. entfernen. */
 export function applyFee(e, rate) {
@@ -97,22 +101,23 @@ export function itemsSummary(items, max = 3) {
 export function entryTitle(e, events) {
   switch (e.type) {
     case 'sale':
+      if (e.status === 'open' && e.note) return e.note; // Reservierung: Name zuerst
       if (e.items && e.items.length) return itemsSummary(e.items);
       if (e.eventId && events) {
         const ev = events.find((x) => x.id === e.eventId);
         if (ev && !e.note) return `Einnahmen ${ev.name}`;
       }
-      return e.note || 'Verkauf';
-    case 'expense': return EXPENSE_CATS[e.category] || 'Ausgabe';
-    case 'withdrawal': return 'Privatentnahme';
-    case 'deposit': return 'Einlage';
-    case 'adjust': return 'Kassenabgleich';
+      return e.note || 'Einnahme';
+    case 'expense': return e.note || EXPENSE_CATS[e.category] || 'Ausgabe';
+    case 'withdrawal': return e.note || 'Privatentnahme';
+    case 'deposit': return e.note || 'Einlage';
+    case 'adjust': return e.note || 'Kassenabgleich';
     default: return 'Eintrag';
   }
 }
 
 export function itemsQty(items) {
-  return (items || []).reduce((s, i) => s + i.qty + (i.free || 0), 0);
+  return (items || []).reduce((s, i) => s + (i.pid === null ? 0 : i.qty + (i.free || 0)), 0); // „Sonstiges“ ist kein Stück
 }
 
 /** Bestand abziehen; gibt zurück, wie viel tatsächlich abgezogen wurde (nie unter 0). */

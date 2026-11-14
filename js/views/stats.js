@@ -1,10 +1,12 @@
-import { store, getMonth, yearTotals, monthKeys, productRanking, sortedEntries, getProduct, getTotals } from '../store.js';
+import { store, getMonth, yearTotals, monthKeys, productRanking, sortedEntries, getProduct, getTotals, getFeePot } from '../store.js';
 import { esc, money, monthLabel, monthKey, currentMonthKey, addMonths, pct } from '../util.js';
 import { icon } from '../icons.js';
-import { monthChart, bindChart, statTile, rankBars, shareBar, navBar, entryRow, thumb, empty } from '../components.js';
+import { monthChart, bindChart, statTile, rankBars, shareBar, navBar, entryRow, thumb, empty, seg } from '../components.js';
 import { CHANNELS, EXPENSE_CATS, FEE_NAME } from '../model.js';
 import { openEntryDetail } from '../sheets.js';
 import { go, back } from '../nav.js';
+
+let range = 'year'; // 'year' | 'last12' – nur fürs laufende Jahr umschaltbar
 
 function channelBars(byChannel, total) {
   const rows = Object.keys(CHANNELS).map((k) => ({ label: CHANNELS[k].label, value: byChannel[k] || 0 })).filter((r) => r.value > 0);
@@ -24,20 +26,34 @@ function topList(rows) {
   }).join('')}</div>`;
 }
 
+/**
+ * Umsatz / Ausgaben / (Rücklage) / Gewinn. Sobald es eine Rücklage gibt, steht sie als eigene
+ * Zahl dabei – sonst ginge die Rechnung „Umsatz − Ausgaben = Gewinn“ für den Leser nicht auf.
+ */
+function sumTiles(t) {
+  const tiles = [
+    statTile('<i class="dot"></i>Umsatz', money(t.revenue)),
+    statTile('<i class="dot b"></i>Ausgaben', money(t.expenses)),
+  ];
+  if (t.fees) tiles.push(statTile(`<i class="dot c"></i>${FEE_NAME}`, money(t.fees)));
+  tiles.push(statTile('Gewinn', money(t.profit), t.profit < 0 ? 'neg' : ''));
+  return `<div class="${t.fees ? 'stats4' : 'stats3'}">${tiles.join('')}</div>`;
+}
+
 /** Zusätzliche Kennzahlen als klar beschriftete Zeilen */
 function detailRows(t, { withDeposits = false } = {}) {
   const row = (k, v, sub = '') => `<div class="kv"><span>${k}${sub ? `<small>${sub}</small>` : ''}</span><span>${v}</span></div>`;
   return `<div class="kv-list">
-    ${t.fees ? row(FEE_NAME, money(-t.fees), 'geht vom Umsatz ab, mindert den Gewinn') : ''}
     ${row('Verkäufe', String(t.sales), t.lumpSales ? `plus ${t.lumpSales} Messe-Tagessumme${t.lumpSales === 1 ? '' : 'n'}` : '')}
     ${row('Ø pro Verkauf', t.avgSale != null ? money(t.avgSale) : '–', t.lumpSales ? 'ohne Messe-Tagessummen' : '')}
     ${t.items ? row('Verkaufte Tiere/Artikel', String(t.items)) : ''}
+    ${t.feeSpent ? row(`Aus ${FEE_NAME} bezahlt`, money(t.feeSpent), 'zählt nicht noch einmal als Ausgabe') : ''}
     ${row('Privat entnommen', money(t.withdrawals))}
     ${withDeposits ? row('Einlagen', money(t.deposits)) : ''}
   </div>`;
 }
 
-/** Laufender Monat: Umsatz, Ausgaben, Gewinn – mit Balken „wie viel vom Umsatz bleibt“ */
+/** Laufender Monat – mit Balken „wie viel vom Umsatz bleibt“ */
 function monthCard(mk) {
   const m = getMonth(mk);
   const pm = getMonth(addMonths(mk, -1));
@@ -46,23 +62,24 @@ function monthCard(mk) {
   const spent = m.revenue > 0 ? Math.min(100, (gone / m.revenue) * 100) : (gone > 0 ? 100 : 0);
   const note = [`${m.sales} ${m.sales === 1 ? 'Verkauf' : 'Verkäufe'}`];
   if (m.lumpSales) note.push(`${m.lumpSales} ${m.lumpSales === 1 ? 'Messetag' : 'Messetage'}`);
-  if (m.fees) note.push(`${FEE_NAME} ${money(m.fees)}`);
   return `<section class="sec">
     <div class="sec-head"><h2>${esc(monthLabel(mk, { year: false }))}</h2><button type="button" class="link" data-month="${mk}">Details ${icon('chevR', 'ic-sm')}</button></div>
     <button type="button" class="card month-card" data-month="${mk}">
-      <div class="stats3">
-        ${statTile('<i class="dot"></i>Umsatz', money(m.revenue))}
-        ${statTile('<i class="dot b"></i>Ausgaben', money(m.expenses))}
-        ${statTile('Gewinn', money(m.profit), m.profit < 0 ? 'neg' : '')}
-      </div>
-      <div class="split-bar ${m.revenue > 0 ? 'has' : ''}" aria-hidden="true">${spent > 0 ? `<span style="width:${spent.toFixed(1)}%"></span>` : ''}</div>
-      <div class="month-foot">
+      ${sumTiles(m)}
+      <span class="split-bar ${m.revenue > 0 ? 'has' : ''}" aria-hidden="true">${spent > 0 ? `<span style="width:${spent.toFixed(1)}%"></span>` : ''}</span>
+      <span class="month-foot">
         <span>${esc(note.join(' · '))}</span>
         ${delta !== null ? `<span class="delta ${delta < 0 ? 'down' : ''}">${icon(delta < 0 ? 'arrowDown' : 'arrowUp')}${Math.abs(delta)} % ggü. ${esc(monthLabel(addMonths(mk, -1), { year: false }))}</span>` : ''}
-      </div>
+      </span>
     </button>
-  </section>
-  <div class="sec-head"><h2>Jahr ${esc(mk.slice(0, 4))}</h2></div>`;
+  </section>`;
+}
+
+function sumMonths(months) {
+  const t = { revenue: 0, expenses: 0, fees: 0 };
+  for (const m of months) { t.revenue += m.revenue; t.expenses += m.expenses; t.fees += m.fees; }
+  t.profit = t.revenue - t.expenses - t.fees;
+  return t;
 }
 
 // ------------------------------------------------------------------
@@ -78,18 +95,21 @@ export function statsView(el, params) {
     const ys = years();
     if (!ys.includes(year)) year = ys[ys.length - 1];
     const i = ys.indexOf(year);
-    const t = yearTotals(year);
-    const months = Array.from({ length: 12 }, (_, m) => {
-      const key = `${year}-${String(m + 1).padStart(2, '0')}`;
-      const x = getMonth(key);
-      return { key, ...x };
-    });
     const cmk = currentMonthKey();
-    const sel = year === cmk.slice(0, 4) ? cmk : `${year}-12`;
-    const firstKey = monthKeys().find((k) => k.startsWith(year + '-'));
+    const isNow = year === cmk.slice(0, 4);
+    const rolling = isNow && range === 'last12';
+    const t = yearTotals(year);
+    const keys = rolling
+      ? Array.from({ length: 12 }, (_, m) => addMonths(cmk, m - 11))
+      : Array.from({ length: 12 }, (_, m) => `${year}-${String(m + 1).padStart(2, '0')}`);
+    const months = keys.map((key) => ({ key, ...getMonth(key) }));
+    const head = rolling ? sumMonths(months) : t;
+    const sel = isNow ? cmk : `${year}-12`;
+    const firstKey = monthKeys()[0];
     const visible = months.filter((m) => m.key <= cmk && firstKey && m.key >= firstKey);
     const top = productRanking((e) => e.date.startsWith(year + '-')).slice(0, 8);
     const all = getTotals();
+    const pot = getFeePot();
 
     if (!store.state.entries.length) {
       el.innerHTML = `<header class="lt"><div><h1>Statistik</h1></div></header>
@@ -106,17 +126,23 @@ export function statsView(el, params) {
         </div>
       </header>
       <div class="content">
-        ${year === cmk.slice(0, 4) ? monthCard(cmk) : ''}
-        <section class="card">
-          ${statTile(`Gewinn ${esc(year)}`, money(t.profit), 'big ' + (t.profit < 0 ? 'neg' : ''))}
-          <div class="stats2">
-            ${statTile('<i class="dot"></i>Umsatz', money(t.revenue))}
-            ${statTile('<i class="dot b"></i>Ausgaben', money(t.expenses))}
+        ${isNow ? monthCard(cmk) : ''}
+
+        <section class="sec">
+          <div class="sec-head"><h2>${rolling ? 'Letzte 12 Monate' : `Jahr ${esc(year)}`}</h2></div>
+          ${isNow ? seg('range', [{ value: 'year', label: `Jahr ${year}` }, { value: 'last12', label: 'Letzte 12 Monate' }], range) : ''}
+          <div class="card">
+            ${statTile('Gewinn', money(head.profit), 'big ' + (head.profit < 0 ? 'neg' : ''))}
+            <div class="${head.fees ? 'stats3' : 'stats2'} stats-sub">
+              ${statTile('<i class="dot"></i>Umsatz', money(head.revenue))}
+              ${statTile('<i class="dot b"></i>Ausgaben', money(head.expenses))}
+              ${head.fees ? statTile(`<i class="dot c"></i>${FEE_NAME}`, money(head.fees)) : ''}
+            </div>
+            ${monthChart(months.map((m) => ({ key: m.key, revenue: m.revenue, expenses: m.expenses })), sel, { mini: true })}
+            <p class="card-note">Säule antippen zeigt die Werte, nochmal antippen öffnet den Monat.</p>
           </div>
-          ${monthChart(months.map((m) => ({ key: m.key, revenue: m.revenue, expenses: m.expenses })), sel, { mini: true })}
-          <p class="card-note">Säule antippen zeigt die Werte, nochmal antippen öffnet den Monat.</p>
+          ${rolling ? '' : `<div class="card list">${detailRows(t)}</div>`}
         </section>
-        <div class="card list">${detailRows(t)}</div>
 
         <section class="month-block">
           <div class="month-head"><h2>Monate</h2></div>
@@ -124,39 +150,46 @@ export function statsView(el, params) {
             <div class="mt-row mt-head"><span>Monat</span><span>Umsatz</span><span>Ausgaben</span><span>Gewinn</span></div>
             ${visible.slice().reverse().map((m) => `
               <button type="button" class="mt-row" data-month="${m.key}">
-                <span>${esc(monthLabel(m.key, { year: false }))}</span>
+                <span>${esc(monthLabel(m.key, { year: rolling, short: rolling }))}</span>
                 <span>${money(m.revenue)}</span>
                 <span>${money(m.expenses)}</span>
                 <span class="${m.profit < 0 ? 'neg' : ''}">${money(m.profit)}</span>
-              </button>`).join('') || '<p class="card-note">Keine Daten.</p>'}
-            <div class="mt-row mt-foot"><span>Summe</span><span>${money(t.revenue)}</span><span>${money(t.expenses)}</span><span class="${t.profit < 0 ? 'neg' : ''}">${money(t.profit)}</span></div>
+              </button>`).join('') || '<p class="card-note pad">Keine Daten.</p>'}
+            <div class="mt-row mt-foot"><span>Summe</span><span>${money(head.revenue)}</span><span>${money(head.expenses)}</span><span class="${head.profit < 0 ? 'neg' : ''}">${money(head.profit)}</span></div>
           </div>
+          ${head.fees ? `<p class="hint">Gewinn = Umsatz − Ausgaben − ${FEE_NAME} (${money(head.fees)}).</p>` : ''}
         </section>
 
         <section class="card">
-          <div class="card-head"><h2>Umsatz nach Verkaufsweg</h2></div>
+          <div class="card-head"><h2>Umsatz nach Verkaufsweg</h2><span class="muted">${esc(year)}</span></div>
           ${channelBars(t.byChannel, t.revenue)}
         </section>
 
         <section class="card">
-          <div class="card-head"><h2>Ausgaben nach Kategorie</h2></div>
+          <div class="card-head"><h2>Ausgaben nach Kategorie</h2><span class="muted">${esc(year)}</span></div>
           ${expenseBars(t.byExpense)}
         </section>
 
         <section class="card">
-          <div class="card-head"><h2>Meistverkauft ${esc(year)}</h2></div>
+          <div class="card-head"><h2>Meistverkauft</h2><span class="muted">${esc(year)}</span></div>
           ${topList(top)}
         </section>
 
+        ${all.fees || pot ? `<section class="sec">
+          <div class="sec-head"><h2>${FEE_NAME}</h2></div>
+          <div class="card pot">
+            ${statTile('Im Topf', money(pot), 'big ' + (pot < 0 ? 'neg' : ''))}
+            <div class="stats2 stats-sub">
+              ${statTile('Angespart', money(all.fees))}
+              ${statTile('Daraus bezahlt', money(all.feeSpent))}
+            </div>
+            <p class="card-note">Von jedem Verkauf geht ein fester Anteil in den Topf. Bei einer Ausgabe kannst du „Aus der ${FEE_NAME} bezahlen“ wählen – sie mindert den Gewinn dann nicht noch einmal.</p>
+          </div>
+        </section>` : ''}
+
         <section class="sec">
           <div class="sec-head"><h2>Seit Beginn</h2></div>
-          <div class="card">
-            <div class="stats3">
-              ${statTile('Umsatz', money(all.revenue))}
-              ${statTile('Ausgaben', money(all.expenses))}
-              ${statTile('Gewinn', money(all.profit), all.profit < 0 ? 'neg' : '')}
-            </div>
-          </div>
+          <div class="card">${sumTiles(all)}</div>
           <div class="card list">${detailRows(all, { withDeposits: true })}</div>
         </section>
       </div>`;
@@ -165,6 +198,8 @@ export function statsView(el, params) {
   el.onclick = (e) => {
     const y = e.target.closest('[data-year]');
     if (y && y.dataset.year) { year = y.dataset.year; render(); window.scrollTo(0, 0); return; }
+    const r = e.target.closest('[data-seg="range"] [data-value]');
+    if (r) { range = r.dataset.value; render(); return; }
     const mo = e.target.closest('[data-month]:not(.ccol)');
     if (mo) { go('monat/' + mo.dataset.month); return; }
   };
@@ -178,27 +213,31 @@ export function monthView(el, params) {
     const m = getMonth(key);
     const list = sortedEntries(store.state.entries.filter((e) => monthKey(e.date) === key));
     const top = productRanking((e) => monthKey(e.date) === key).slice(0, 5);
+    const first = monthKeys()[0] || key;
+    const prev = addMonths(key, -1), next = addMonths(key, 1);
     el.innerHTML = `
       ${navBar(monthLabel(key), 'Statistik')}
-      <header class="lt compact"><div><h1>${esc(monthLabel(key, { year: false }))}</h1><p class="lt-sub">${esc(key.slice(0, 4))}</p></div></header>
+      <header class="lt compact">
+        <div><h1>${esc(monthLabel(key, { year: false }))}</h1><p class="lt-sub">${esc(key.slice(0, 4))}</p></div>
+        <div class="year-switch">
+          <button type="button" class="icon-btn" data-to="${prev}" ${prev >= first ? '' : 'disabled'} aria-label="Vormonat">${icon('chevL')}</button>
+          <button type="button" class="icon-btn" data-to="${next}" ${next <= currentMonthKey() ? '' : 'disabled'} aria-label="Folgemonat">${icon('chevR')}</button>
+        </div>
+      </header>
       <div class="content">
-        <section class="card">
-          <div class="stats3">
-            ${statTile('Umsatz', money(m.revenue))}
-            ${statTile('Ausgaben', money(m.expenses))}
-            ${statTile('Gewinn', money(m.profit), m.profit < 0 ? 'neg' : '')}
-          </div>
-        </section>
+        <section class="card">${sumTiles(m)}</section>
         <div class="card list">${detailRows(m)}</div>
         ${m.revenue ? `<section class="card"><div class="card-head"><h2>Verkaufsweg</h2></div>${channelBars(m.byChannel, m.revenue)}</section>` : ''}
         ${top.length ? `<section class="card"><div class="card-head"><h2>Meistverkauft</h2></div>${topList(top)}</section>` : ''}
         <section class="month-block">
           <div class="month-head"><h2>Einträge</h2><span>${list.length}</span></div>
-          ${list.length ? `<div class="card list">${list.map((e) => entryRow(e)).join('')}</div>` : '<p class="card-note">Keine Einträge in diesem Monat.</p>'}
+          ${list.length ? `<div class="card list">${list.map((e) => entryRow(e)).join('')}</div>` : '<p class="hint">Keine Einträge in diesem Monat.</p>'}
         </section>
       </div>`;
   }
   el.onclick = (e) => {
+    const to = e.target.closest('[data-to]');
+    if (to && !to.disabled) { go('monat/' + to.dataset.to, { replace: true }); return; }
     const row = e.target.closest('[data-entry]');
     if (row) { openEntryDetail(row.dataset.entry); return; }
     if (e.target.closest('[data-action="back"]')) back('statistik/' + key.slice(0, 4));

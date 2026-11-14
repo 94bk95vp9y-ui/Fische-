@@ -7,14 +7,14 @@ Web-App fürs iPhone, mit der du den Verkauf von Fischen, Garnelen, Schnecken & 
 | Bereich | Was du damit machst |
 |---|---|
 | **Kasse** (großer roter Knopf in der Mitte) | Artikel-Kacheln mit Foto antippen (+1 pro Tipp; −/+ und Mengeneingabe erscheinen direkt auf der Kachel). Unten schwebt der Warenkorb mit Summe. „Kassieren“ → Endbetrag (Rabatt möglich), Verkaufsweg, Datum, Notiz, Rückgeld-Rechner, „noch nicht bezahlt“ (Reservierung). Der Warenkorb bleibt erhalten, auch wenn du die App kurz verlässt. |
-| **Nur Betrag / Einnahme** | Verkauf ohne Artikel zählen, z. B. 1,66 €. Gleiches Fenster für Ausgabe, Privatentnahme und Einlage, mit großem Ziffernblock. |
+| **Einnahme ohne Artikel** | Betrag ohne Artikel zählen, z. B. 1,66 €. Ausgaben bekommen einen eigenen Titel („Was war das?“), der in allen Listen als Überschrift steht; frühere Titel werden vorgeschlagen. Gleiches Fenster für Ausgabe, Privatentnahme und Einlage, mit großem Ziffernblock. |
 | **Artikel & Preise** (in der Kasse oben rechts oder unter „Mehr“) | Name, Stückpreis, Kategorie, Foto, Mengenrabatt („ab 10 Stück je 1,20 €“), Bestand (zählt bei Verkäufen automatisch runter), Link zur Anzeige. Preisänderungen gelten nur für neue Verkäufe; die letzten Preisänderungen werden angezeigt. Archivieren statt löschen, Reihenfolge der Kacheln sortierbar. |
 | **Aus Anzeige übernehmen (KI)** | Prompt kopieren → in ChatGPT/Claude/Gemini mit Screenshots der Anzeige einfügen → Antwort zurück in die App kopieren → prüfen → übernehmen. Gibt es den Artikel schon (gleicher Name), wird nur der Preis aktualisiert. Die App selbst enthält keine KI und schickt nichts ins Internet. |
 | **Messen & Börsen** | Messe mit Datum anlegen und entweder die Tageseinnahmen direkt eintragen oder im **Messe-Modus** jeden Verkauf in der Kasse zählen – er wird dann automatisch der Messe zugeordnet. Standgebühr und Fahrt werden als Kosten gebucht, die Messe zeigt ihren eigenen Gewinn. |
 | **Start** | Kassenstand als „Becken“ (pro heutigem Verkauf schwimmt ein Fisch darin), Tagesumsatz, Schnellzugriffe, offene Reservierungen, letzte Einträge. |
-| **Abgabe** | Fester Prozentsatz (Standard 10 %, unter „Mehr“ einstellbar, 0 = aus), der von jedem neuen Verkauf abgeht und den Gewinn mindert. Beim Kassieren pro Verkauf änderbar. |
+| **Rücklage** | Fester Anteil (Standard 10 %, unter „Mehr“ einstellbar, auch mit Komma, leer = aus), der von jedem neuen Verkauf in einen Topf für Anschaffungen geht und den Gewinn mindert. Beim Kassieren und beim Bearbeiten pro Verkauf änderbar. Ausgaben lassen sich „aus der Rücklage bezahlen“ – sie leeren den Topf, mindern den Gewinn aber nicht noch einmal. |
 | **Gratis-Zugabe** | Pro Artikel einstellbar, z. B. „je 10 Stück 1 gratis“. Die Gratis-Stücke werden beim Verkauf automatisch mitgezählt und vom Bestand abgezogen. |
-| **Anzeigen kopieren** | Unter „Mehr“: Titel und Beschreibung aller Artikel in der Kasse als Text in die Zwischenablage, z. B. für eine KI. |
+| **Anzeigen kopieren** | Unter „Mehr“: Titel und Beschreibung aller Artikel in der Kasse als Text in die Zwischenablage, wahlweise mit Preisen – z. B. für eine KI. |
 | **Verlauf** | Alle Einträge nach Monaten, mit Filter und Suche. Antippen → Details, bearbeiten, löschen (mit „Rückgängig“). |
 | **Statistik** | Aktueller Monat mit Balken „wie viel vom Umsatz bleibt“, Jahr mit 12-Monats-Diagramm, Monatstabelle, Umsatz nach Verkaufsweg, Ausgaben nach Kategorie, meistverkaufte Artikel, Summen seit Beginn. |
 | **Darstellung** | Hell, dunkel oder automatisch nach Systemeinstellung (unter „Mehr“). |
@@ -24,8 +24,9 @@ Web-App fürs iPhone, mit der du den Verkauf von Fischen, Garnelen, Schnecken & 
 ### So wird gerechnet
 
 - **Umsatz** = alles, was Kunden tatsächlich bezahlt haben.
-- **Gewinn** = Umsatz − Abgabe − Ausgaben.
-- Die **Abgabe** mindert nur den Gewinn, nicht den Kassenstand. Ihr Satz wird am Verkauf gespeichert; Verkäufe von vor der Einführung haben keine Abgabe.
+- **Gewinn** = Umsatz − Ausgaben − Rücklage.
+- Die **Rücklage** mindert nur den Gewinn, nicht den Kassenstand. Ihr Satz wird am Verkauf gespeichert; Verkäufe von vor der Einführung haben keine Rücklage.
+- **Topf** = angesparte Rücklage − daraus bezahlte Ausgaben. Solche Ausgaben zählen nicht bei „Ausgaben“ mit, senken aber den Kassenstand.
 - **Kassenstand** = Einlagen + Umsatz − Ausgaben − Privatentnahmen ± Abgleich.
 - Privatentnahmen und Einlagen ändern nur den Kassenstand, nicht den Gewinn.
 - Reservierte (noch nicht bezahlte) Verkäufe zählen erst ab „bezahlt“.
