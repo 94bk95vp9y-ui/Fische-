@@ -1,7 +1,7 @@
 // HTML-Bausteine, die in mehreren Ansichten vorkommen.
 import { esc, money, moneyAxis, relDay, monthLabel, fmtDate, daysBetween, todayISO } from './util.js';
 import { icon, CAT_GLYPH } from './icons.js';
-import { CHANNELS, entryTitle, PRODUCT_CATS, EXPENSE_CATS, ENTRY_TYPES, FEE_NAME, itemsSummary } from './model.js';
+import { CHANNELS, entryTitle, PRODUCT_CATS, EXPENSE_CATS, ENTRY_TYPES, itemsSummary } from './model.js';
 import { imgSrc } from './ui.js';
 import { store, getEvent } from './store.js';
 
@@ -18,7 +18,9 @@ const TYPE_ICON = { sale: 'arrowDown', expense: 'arrowUp', withdrawal: 'person',
 export function amountHtml(e) {
   if (e.status === 'open') return `<span class="ramt muted">${money(e.amount)}</span>`;
   switch (e.type) {
-    case 'sale': return `<span class="ramt pos">${money(e.amount, { sign: true })}</span>`;
+    case 'sale': return e.fee
+      ? `<span class="ramt pos">${money(e.amount - e.fee, { sign: true })}<small>von ${money(e.amount)}</small></span>`
+      : `<span class="ramt pos">${money(e.amount, { sign: true })}</span>`;
     case 'expense': return `<span class="ramt neg">${money(-e.amount)}</span>`;
     case 'withdrawal': return `<span class="ramt">${money(-e.amount)}</span>`;
     case 'deposit': return `<span class="ramt">${money(e.amount, { sign: true })}</span>`;
@@ -36,7 +38,6 @@ export function entrySub(e, { showDate = true } = {}) {
     if (e.items && e.items.length && e.note) parts.push(e.status === 'open' ? itemsSummary(e.items) : e.note);
   } else if (e.type === 'expense') {
     if (e.note) parts.push(EXPENSE_CATS[e.category] || 'Ausgabe'); // Titel ist dann der eigene Text
-    if (e.fromFee) parts.push(`aus ${FEE_NAME}`);
     if (ev) parts.push(ev.name);
   } else if (e.note) parts.push(ENTRY_TYPES[e.type].label);
   return parts.map(esc).join(' · ');

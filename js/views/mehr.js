@@ -1,4 +1,4 @@
-import { store, commit, replaceState, emptyState, activeEvent, activeProducts, getFeePot } from '../store.js';
+import { store, commit, replaceState, emptyState, activeEvent, activeProducts } from '../store.js';
 import { esc, money, fmtDateTime, isStandalone } from '../util.js';
 import { icon } from '../icons.js';
 import { CHANNELS, CHANNEL_KEYS, FEE_NAME, fmtRate, sortedTiers } from '../model.js';
@@ -8,7 +8,7 @@ import { openSheet, actionSheet, undoToast, copyText, toast } from '../ui.js';
 import { exportBackup, importBackup, exportCsv, backupAgeDays } from '../backup.js';
 import { go } from '../nav.js';
 
-export const APP_VERSION = '2.2.0';
+export const APP_VERSION = '2.3.0';
 
 const THEMES = [{ value: 'auto', label: 'Automatisch' }, { value: 'light', label: 'Hell' }, { value: 'dark', label: 'Dunkel' }];
 
@@ -40,10 +40,10 @@ export function mehrView(el) {
         </div>
         <section class="month-block"><div class="month-head"><h2>Kasse</h2></div>
           <div class="card list">
-            ${item('fee', 'tag', `${FEE_NAME} je Verkauf`, s.settings.feeRate > 0 ? `${fmtRate(s.settings.feeRate)} %` : 'aus', '', 'c-sand')}
+            ${item('fee', 'tag', `${FEE_NAME} je Verkauf`, s.settings.feeRate > 0 ? `${fmtRate(s.settings.feeRate)} %` : 'aus', '', 'c-neg')}
             ${item('adjust', 'scale', 'Mit echtem Geld abgleichen')}
             ${item('deposit', 'arrowDown', 'Einlage / Startbetrag', '', '', 'c-pos')}
-            ${item('withdrawal', 'person', 'Privatentnahme', '', '', 'c-sand')}
+            ${item('withdrawal', 'person', 'Privatentnahme', '', '', 'c-neg')}
             <label class="row nav-row select-row"><span class="ricon c-brand">${icon('tag')}</span><span class="rmain"><span class="rtitle">Verkaufsweg</span></span>
               <select class="in inline" data-setting="defaultChannel">${CHANNEL_KEYS.map((k) => `<option value="${k}" ${s.settings.defaultChannel === k ? 'selected' : ''}>${esc(CHANNELS[k].short)}</option>`).join('')}</select></label>
           </div>
@@ -160,11 +160,11 @@ export function showHowCalc() {
       <div class="group explain">
         <div><strong>Umsatz</strong><span>Alles, was Kunden bezahlt haben (Kasse, Schnell-Betrag, Messe-Einnahmen).</span></div>
         <div><strong>Ausgaben</strong><span>Was du fürs Hobby/Geschäft kaufst: Technik, neue Tiere, Futter, Versand, Standgebühr …</span></div>
-        <div><strong>${FEE_NAME}</strong><span>Fester Anteil (einstellbar, Standard 10 %), der von jedem neuen Verkauf in einen Topf für Anschaffungen geht. Beispiel: 20 € Verkauf, 10 % → 2 € ${FEE_NAME}, 18 € Gewinn. Zahlst du später eine Ausgabe „aus der ${FEE_NAME}“, leert das den Topf, mindert den Gewinn aber nicht noch einmal. Der Satz lässt sich pro Verkauf ändern.</span></div>
-        <div><strong>Gewinn</strong><span>Umsatz − Ausgaben − ${FEE_NAME}.</span></div>
+        <div><strong>${FEE_NAME}</strong><span>Fester Anteil (einstellbar, Standard 10 %), der von jedem neuen Verkauf abgeht – ähnlich wie eine Steuer. Das Geld ist weg. Beispiel: 50 € Verkauf, 10 % → 5 € ${FEE_NAME}, der Verkauf zählt mit +45 €. Der Umsatz bleibt 50 €. Der Satz lässt sich pro Verkauf ändern.</span></div>
+        <div><strong>Gewinn</strong><span>Umsatz − ${FEE_NAME} − Ausgaben.</span></div>
         <div><strong>Privatentnahme</strong><span>Geld, das du dir selbst auszahlst. Senkt den Kassenstand, aber nicht den Gewinn.</span></div>
         <div><strong>Einlage</strong><span>Eigenes Geld, das du in die Kasse legst (z. B. Startbetrag). Erhöht den Kassenstand, ist aber kein Umsatz.</span></div>
-        <div><strong>Kassenstand</strong><span>Einlagen + Umsatz − Ausgaben − Entnahmen ± Abgleich. So viel Geld sollte gerade da sein. Die ${FEE_NAME} ändert den Kassenstand nicht – das Geld liegt in der Kasse, bis du davon etwas kaufst.</span></div>
+        <div><strong>Kassenstand</strong><span>Einlagen + Umsatz − ${FEE_NAME} − Ausgaben − Entnahmen ± Abgleich. So viel Geld sollte gerade da sein.</span></div>
         <div><strong>Offen / reserviert</strong><span>Zählt erst, wenn du „bezahlt“ antippst – mit dem Datum der Bezahlung.</span></div>
         <div><strong>Rabatt</strong><span>Zahlt ein Kunde weniger als die Summe, zählt der tatsächlich bezahlte Betrag. In der Artikel-Statistik wird der Rabatt anteilig verteilt.</span></div>
       </div>

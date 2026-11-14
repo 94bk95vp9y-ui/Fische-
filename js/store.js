@@ -20,7 +20,7 @@ const fresh = () => ({
   settings: {
     lastBackup: null,
     defaultChannel: 'ka',
-    feeRate: 10, // Rücklage in Prozent auf jeden neuen Verkauf (0 = aus)
+    feeRate: 10, // Abgabe in Prozent auf jeden neuen Verkauf (0 = aus)
     lastExpenseCat: null,
     activeEventId: null,
     installHintHidden: false,
@@ -221,7 +221,7 @@ function stats() {
 function blank() {
   // sales = einzelne Verkäufe (Kunden); Messe-Tagessummen zählen extra (lumpSales),
   // weil darin viele Kunden stecken – sonst wäre „Ø pro Verkauf“ verzerrt.
-  return { revenue: 0, fees: 0, feeSpent: 0, expenses: 0, withdrawals: 0, deposits: 0, adjust: 0, sales: 0, salesRevenue: 0, lumpSales: 0, items: 0, byChannel: { ka: 0, messe: 0, other: 0 }, byExpense: {} };
+  return { revenue: 0, fees: 0, expenses: 0, withdrawals: 0, deposits: 0, adjust: 0, sales: 0, salesRevenue: 0, lumpSales: 0, items: 0, byChannel: { ka: 0, messe: 0, other: 0 }, byExpense: {} };
 }
 function add(m, e) {
   switch (e.type) {
@@ -234,8 +234,7 @@ function add(m, e) {
       for (const i of e.items || []) if (i.pid !== null) m.items += i.qty + (i.free || 0);
       break;
     case 'expense':
-      // Aus der Rücklage bezahlt: wurde beim Verkauf schon vom Gewinn abgezogen
-      if (e.fromFee) m.feeSpent += e.amount; else m.expenses += e.amount;
+      m.expenses += e.amount;
       m.byExpense[e.category || 'sonstiges'] = (m.byExpense[e.category || 'sonstiges'] || 0) + e.amount;
       break;
     case 'withdrawal': m.withdrawals += e.amount; break;
@@ -245,8 +244,6 @@ function add(m, e) {
 }
 
 export const getBalance = () => stats().balance;
-/** Was gerade in der Rücklage liegt: angesammelt − daraus bezahlte Ausgaben */
-export const getFeePot = () => stats().totals.fees - stats().totals.feeSpent;
 export const getTotals = () => withProfit(stats().totals);
 export const getMonth = (key) => withProfit(stats().months.get(key) || blank());
 export const monthKeys = () => [...stats().months.keys()].sort();
@@ -258,7 +255,7 @@ export function yearTotals(year) {
   const t = blank();
   for (const [k, m] of stats().months) {
     if (!k.startsWith(year + '-')) continue;
-    t.revenue += m.revenue; t.fees += m.fees; t.feeSpent += m.feeSpent; t.expenses += m.expenses; t.withdrawals += m.withdrawals;
+    t.revenue += m.revenue; t.fees += m.fees; t.expenses += m.expenses; t.withdrawals += m.withdrawals;
     t.deposits += m.deposits; t.adjust += m.adjust; t.sales += m.sales; t.items += m.items;
     t.salesRevenue += m.salesRevenue; t.lumpSales += m.lumpSales;
     for (const c in m.byChannel) t.byChannel[c] = (t.byChannel[c] || 0) + m.byChannel[c];
@@ -301,7 +298,7 @@ export function eventStats(eventId) {
   for (const e of store.state.entries) {
     if (e.eventId !== eventId || e.status === 'open') continue;
     if (e.type === 'sale') { revenue += e.amount; fees += e.fee || 0; sales++; }
-    if (e.type === 'expense' && !e.fromFee) costs += e.amount;
+    if (e.type === 'expense') costs += e.amount;
   }
   return { revenue, costs, fees, profit: revenue - costs - fees, sales };
 }

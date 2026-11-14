@@ -714,6 +714,7 @@ button.line:active { background: var(--surface-2); }
 .detail-head { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 0 6px; text-align: center; }
 .detail-amt { font-size: 46px; font-weight: 800; letter-spacing: -.02em; line-height: 1.05; }
 .detail-amt.muted { color: var(--text-3); }
+.detail-sub { font: 600 14px var(--font-d); color: var(--text-2); font-variant-numeric: tabular-nums; margin-top: -2px; }
 .detail-title { font-size: 16px; color: var(--text-2); max-width: 30ch; }
 
 .pay {

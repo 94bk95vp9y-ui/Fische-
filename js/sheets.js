@@ -1,8 +1,8 @@
 // Formulare und Detailansichten für Einträge (Verkauf, Ausgabe, Entnahme, Einlage, Abgleich, Messe).
-import { store, commit, getEvent, getProduct, sortedEvents, getBalance, getFeePot, activeProducts } from './store.js';
+import { store, commit, getEvent, getProduct, sortedEvents, getBalance, activeProducts } from './store.js';
 import { openSheet, actionSheet, createKeypad, undoToast, toast, confirmDanger, openAmountPad } from './ui.js';
 import { esc, money, uid, todayISO, isValidISO, fmtDateLong, fmtDateTime, fmtDate } from './util.js';
-import { CHANNELS, CHANNEL_KEYS, EXPENSE_CATS, EXPENSE_CAT_KEYS, ENTRY_TYPES, entryTitle, itemsQty, unitPriceFor, takeStock, returnStock, applyFee, feeFor, freeFor, fmtRate, FEE_NAME } from './model.js';
+import { CHANNELS, CHANNEL_KEYS, EXPENSE_CATS, EXPENSE_CAT_KEYS, ENTRY_TYPES, entryTitle, itemsQty, unitPriceFor, takeStock, returnStock, applyFee, feeFor, freeFor, fmtRate, netOf, FEE_NAME } from './model.js';
 import { seg, chips, bindChoice, sec, amountRow, setAmountRow } from './components.js';
 import { icon } from './icons.js';
 import { go } from './nav.js';
@@ -51,7 +51,7 @@ function bindEventSelect(select, getFallback) {
 }
 
 // ------------------------------------------------------------------
-// Rücklage: Zeile in Formularen + Eingabe des Prozentsatzes
+// Abgabe: Zeile in Formularen + Eingabe des Prozentsatzes
 // ------------------------------------------------------------------
 const feeRowHtml = () => `<div class="group"><button type="button" class="field row-field amt-row" data-act="fee">
   <span class="field-label">${icon('tag')}<span data-feelabel></span></span><span class="amt-val" data-feeval></span></button></div>`;
@@ -76,7 +76,7 @@ export function openFeePad({ title, rate, amount = null, onSet }) {
       if (r > 100) return 'Höchstens 100 %';
       if (!r) return `Leer = keine ${FEE_NAME}`;
       const a = amount || 2000;
-      return `${amount ? '' : 'Beispiel: '}${money(a)} → ${money(feeFor(a, r))} ${FEE_NAME}, ${money(a - feeFor(a, r))} bleiben`;
+      return `${amount ? '' : 'Beispiel: '}${money(a)} Umsatz → ${money(feeFor(a, r))} ${FEE_NAME}, ${money(a - feeFor(a, r))} bleiben`;
     },
     onSet: (c) => onSet(Math.min(100, (c || 0) / 100)),
   });
@@ -118,11 +118,8 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
     date: entry?.date || preset.date || todayISO(),
     note: entry?.note || preset.note || '',
     feeRate: editing ? entry.feeRate || 0 : st.settings.feeRate || 0,
-    fromFee: !!entry?.fromFee,
   };
   if (v.type === 'sale' && v.eventId) v.channel = 'messe';
-  // Topf inkl. des Betrags, den dieser Eintrag (beim Bearbeiten) selbst schon daraus genommen hat
-  const pot = getFeePot() + (entry?.fromFee ? entry.amount : 0);
   const sugg = editing ? [] : expenseSuggestions();
   let touched = false;
 
@@ -161,8 +158,6 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
     } else if (v.type === 'expense') {
       html = (sugg.length ? `<div class="chips scroll" data-sugg ${noteIn.value.trim() ? 'hidden' : ''}>${sugg.map((x, i) => `<button type="button" class="chip" data-sugg-i="${i}">${esc(x.note)}</button>`).join('')}</div>` : '') +
         sec('Kategorie', chips('category', EXPENSE_CAT_KEYS.map((k) => ({ value: k, label: EXPENSE_CATS[k] })), v.category, 'scroll')) +
-        (pot > 0 || v.fromFee ? `<div class="group"><label class="switch-row"><span><strong>Aus der ${FEE_NAME} bezahlen</strong><small>Im Topf: ${money(pot)}. Mindert den Gewinn nicht noch einmal.</small></span>
-          <input type="checkbox" class="switch" data-f="fromfee" ${v.fromFee ? 'checked' : ''}></label></div>` : '') +
         (st.events.length ? eventRow(v.eventId, true) : '');
     }
     fields.innerHTML = html;
@@ -200,7 +195,6 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
     if (w) w.hidden = !!noteIn.value.trim();
   });
   body.addEventListener('change', (e) => {
-    if (e.target.matches('[data-f="fromfee"]')) { v.fromFee = e.target.checked; touched = true; }
   });
   body.addEventListener('click', (e) => {
     const sg = e.target.closest('[data-sugg-i]');
@@ -234,12 +228,12 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
     }
     const data = { type: v.type, amount, date, note };
     if (v.type === 'sale') { data.channel = v.channel; data.eventId = v.channel === 'messe' ? v.eventId : null; }
-    if (v.type === 'expense') { data.category = v.category; data.eventId = v.eventId || null; data.fromFee = v.fromFee; }
+    if (v.type === 'expense') { data.category = v.category; data.eventId = v.eventId || null; }
     const tidy = (e) => {
       applyFee(e, v.feeRate);
       if (e.type !== 'sale') delete e.channel;
-      if (e.type !== 'expense') { delete e.category; delete e.fromFee; }
-      if (!e.fromFee) delete e.fromFee;
+      if (e.type !== 'expense') delete e.category;
+      delete e.fromFee; // Altlast aus der kurzzeitigen „Rücklage“
       if (!e.eventId) delete e.eventId;
     };
     const remember = (s) => { if (v.type === 'expense') s.settings.lastExpenseCat = v.category; };
@@ -257,7 +251,7 @@ export function openEntryForm({ type = 'sale', entry = null, preset = {} } = {})
       const e = { id: uid(), ...data, createdAt: Date.now() };
       tidy(e);
       const undo = commit((s) => { s.entries.push(e); remember(s); });
-      const sign = v.type === 'sale' || v.type === 'deposit' ? money(amount, { sign: true }) : money(-amount);
+      const sign = v.type === 'sale' ? money(netOf(e), { sign: true }) : v.type === 'deposit' ? money(amount, { sign: true }) : money(-amount);
       undoToast(`${ENTRY_LABEL[v.type]} gespeichert · ${sign}`, undo);
     }
     return true;
@@ -281,8 +275,10 @@ export function openEntryDetail(id) {
   if (e.type === 'expense' && e.note) rows.push(['Was', esc(e.note)]);
   if (e.type === 'expense') rows.push(['Kategorie', esc(EXPENSE_CATS[e.category] || 'Sonstiges')]);
   if (e.note && e.type !== 'expense') rows.push([e.status === 'open' ? 'Für wen' : 'Notiz', esc(e.note)]);
-  if (e.fromFee) rows.push(['Bezahlt aus', esc(FEE_NAME)]);
-  if (e.type === 'sale' && e.fee) rows.push([`${FEE_NAME} (${fmtRate(e.feeRate)} %)`, `${money(-e.fee)} <small class="muted">bleiben ${money(e.amount - e.fee)}</small>`]);
+  if (e.type === 'sale' && e.fee) {
+    rows.push(['Umsatz (Kunde hat bezahlt)', money(e.amount)]);
+    rows.push([`${FEE_NAME} (${fmtRate(e.feeRate)} %)`, money(-e.fee)]);
+  }
   if (e.status === 'open') rows.push(['Status', '<em class="pill">offen – noch nicht bezahlt</em>']);
   rows.push(['Erfasst', esc(fmtDateTime(e.createdAt || Date.now()))]);
   if (e.updatedAt) rows.push(['Geändert', esc(fmtDateTime(e.updatedAt))]);
@@ -312,7 +308,8 @@ export function openEntryDetail(id) {
     },
     content: `
       <div class="detail-head">
-        <span class="detail-amt ${amtCls}">${e.type === 'adjust' ? money(e.amount, { sign: true }) : money(sign * e.amount, { sign: sign > 0 })}</span>
+        <span class="detail-amt ${amtCls}">${e.type === 'adjust' ? money(e.amount, { sign: true }) : money(sign * (e.type === 'sale' ? netOf(e) : e.amount), { sign: sign > 0 })}</span>
+        ${e.type === 'sale' && e.fee ? `<span class="detail-sub">${money(e.amount)} Umsatz − ${money(e.fee)} ${FEE_NAME}</span>` : ''}
         <span class="detail-title">${esc(entryTitle(e, store.state.events))}</span>
       </div>
       ${e.status === 'open' ? `<button type="button" class="btn primary block" data-act="paid">${icon('check')}Als bezahlt markieren</button>` : ''}
@@ -661,7 +658,7 @@ export function openCheckout(lines, onDone) {
       s.entries.push(e);
     });
     onDone && onDone(undo);
-    undoToast(isOpen ? `Reserviert · ${money(v.paid)} offen` : `Verkauf gespeichert · ${money(v.paid, { sign: true })}`, () => { undo(); onDone && onDone(null, lines); });
+    undoToast(isOpen ? `Reserviert · ${money(v.paid)} offen` : `Verkauf gespeichert · ${money(v.paid - feeFor(v.paid, v.feeRate), { sign: true })}`, () => { undo(); onDone && onDone(null, lines); });
     return true;
   }
 }
