@@ -12,7 +12,7 @@ Web-App fürs iPhone, mit der du den Verkauf von Fischen, Garnelen, Schnecken & 
 | **Aus Anzeige übernehmen (KI)** | Prompt kopieren → in ChatGPT/Claude/Gemini mit Screenshots der Anzeige einfügen → Antwort zurück in die App kopieren → prüfen → übernehmen. Gibt es den Artikel schon (gleicher Name), wird nur der Preis aktualisiert. Die App selbst enthält keine KI und schickt nichts ins Internet. |
 | **Messen & Börsen** | Messe mit Datum anlegen und entweder die Tageseinnahmen direkt eintragen oder im **Messe-Modus** jeden Verkauf in der Kasse zählen – er wird dann automatisch der Messe zugeordnet. Standgebühr und Fahrt werden als Kosten gebucht, die Messe zeigt ihren eigenen Gewinn. |
 | **Start** | Kassenstand als „Becken“ (pro heutigem Verkauf schwimmt ein Fisch darin), Tagesumsatz, Schnellzugriffe, offene Reservierungen, letzte Einträge. |
-| **Rücklage** | Fester Anteil (Standard 10 %, unter „Mehr“ einstellbar, auch mit Komma, leer = aus), der von jedem neuen Verkauf in einen Topf für Anschaffungen geht und den Gewinn mindert. Beim Kassieren und beim Bearbeiten pro Verkauf änderbar. Ausgaben lassen sich „aus der Rücklage bezahlen“ – sie leeren den Topf, mindern den Gewinn aber nicht noch einmal. |
+| **Abgabe** | Fester Prozentsatz (Standard 10 %, unter „Mehr“ einstellbar, auch mit Komma, leer = aus), der von jedem neuen Verkauf abgeht – ähnlich einer Steuer, das Geld ist weg. Ein 50-€-Verkauf erscheint als +45 € (darunter klein „von 50 €“). Beim Kassieren und Bearbeiten pro Verkauf änderbar. |
 | **Gratis-Zugabe** | Pro Artikel einstellbar, z. B. „je 10 Stück 1 gratis“. Die Gratis-Stücke werden beim Verkauf automatisch mitgezählt und vom Bestand abgezogen. |
 | **Anzeigen kopieren** | Unter „Mehr“: Titel und Beschreibung aller Artikel in der Kasse als Text in die Zwischenablage, wahlweise mit Preisen – z. B. für eine KI. |
 | **Verlauf** | Alle Einträge nach Monaten, mit Filter und Suche. Antippen → Details, bearbeiten, löschen (mit „Rückgängig“). |
@@ -24,10 +24,9 @@ Web-App fürs iPhone, mit der du den Verkauf von Fischen, Garnelen, Schnecken & 
 ### So wird gerechnet
 
 - **Umsatz** = alles, was Kunden tatsächlich bezahlt haben.
-- **Gewinn** = Umsatz − Ausgaben − Rücklage.
-- Die **Rücklage** mindert nur den Gewinn, nicht den Kassenstand. Ihr Satz wird am Verkauf gespeichert; Verkäufe von vor der Einführung haben keine Rücklage.
-- **Topf** = angesparte Rücklage − daraus bezahlte Ausgaben. Solche Ausgaben zählen nicht bei „Ausgaben“ mit, senken aber den Kassenstand.
-- **Kassenstand** = Einlagen + Umsatz − Ausgaben − Privatentnahmen ± Abgleich.
+- **Gewinn** = Umsatz − Abgabe − Ausgaben.
+- Die **Abgabe** ist weg wie eine Steuer: Sie mindert Gewinn und Kassenstand, der Umsatz bleibt der volle Betrag. Ihr Satz wird am Verkauf gespeichert; Verkäufe von vor der Einführung haben keine Abgabe.
+- **Kassenstand** = Einlagen + Umsatz − Abgabe − Ausgaben − Privatentnahmen ± Abgleich.
 - Privatentnahmen und Einlagen ändern nur den Kassenstand, nicht den Gewinn.
 - Reservierte (noch nicht bezahlte) Verkäufe zählen erst ab „bezahlt“.
 - Alle Beträge werden intern in Cent gerechnet, es gibt also keine Rundungsfehler.

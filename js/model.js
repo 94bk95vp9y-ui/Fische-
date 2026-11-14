@@ -43,7 +43,7 @@ export const ENTRY_TYPES = {
 export function balanceEffect(e) {
   if (e.status === 'open') return 0;
   switch (e.type) {
-    case 'sale': return e.amount;
+    case 'sale': return e.amount - (e.fee || 0); // Abgabe ist weg
     case 'deposit': return e.amount;
     case 'expense': return -e.amount;
     case 'withdrawal': return -e.amount;
@@ -53,17 +53,17 @@ export function balanceEffect(e) {
 }
 
 /**
- * Rücklage: fester Prozentsatz, der von jedem Verkauf abgeht und den Gewinn mindert.
- * Gedacht als Topf für Anschaffungen (Technik, Upgrades …). Ausgaben, die „aus der Rücklage“
- * bezahlt werden (fromFee), mindern den Gewinn nicht noch einmal, sondern leeren den Topf.
+ * Abgabe: fester Prozentsatz, der von jedem Verkauf abgeht – ähnlich einer Steuer. Das Geld ist weg:
+ * Es mindert Gewinn und Kassenstand. Der Umsatz bleibt der volle bezahlte Betrag.
  * Der Satz wird beim Verkauf am Eintrag gespeichert (feeRate) – spätere Änderungen
  * in den Einstellungen gelten nur für neue Verkäufe.
  */
-export const FEE_NAME = 'Rücklage';
+export const FEE_NAME = 'Abgabe';
 /** 7.5 -> "7,5" */
 export const fmtRate = (r) => String(Math.round(r * 100) / 100).replace('.', ',');
 export const feeFor = (amount, rate) => (rate > 0 ? Math.round((amount * rate) / 100) : 0);
 /** Abgabe an einem Verkaufs-Eintrag setzen bzw. entfernen. */
+export const netOf = (e) => e.amount - (e.fee || 0);
 export function applyFee(e, rate) {
   if (e.type === 'sale' && rate > 0) { e.feeRate = rate; e.fee = feeFor(e.amount, rate); }
   else { delete e.feeRate; delete e.fee; }

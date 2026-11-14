@@ -1,4 +1,4 @@
-import { store, getMonth, yearTotals, monthKeys, productRanking, sortedEntries, getProduct, getTotals, getFeePot } from '../store.js';
+import { store, getMonth, yearTotals, monthKeys, productRanking, sortedEntries, getProduct, getTotals } from '../store.js';
 import { esc, money, monthLabel, monthKey, currentMonthKey, addMonths, pct } from '../util.js';
 import { icon } from '../icons.js';
 import { monthChart, bindChart, statTile, rankBars, shareBar, navBar, entryRow, thumb, empty, seg } from '../components.js';
@@ -27,15 +27,13 @@ function topList(rows) {
 }
 
 /**
- * Umsatz / Ausgaben / (Rücklage) / Gewinn. Sobald es eine Rücklage gibt, steht sie als eigene
+ * Umsatz / Abgabe / Ausgaben / Gewinn. Sobald es eine Abgabe gibt, steht sie als eigene
  * Zahl dabei – sonst ginge die Rechnung „Umsatz − Ausgaben = Gewinn“ für den Leser nicht auf.
  */
 function sumTiles(t) {
-  const tiles = [
-    statTile('<i class="dot"></i>Umsatz', money(t.revenue)),
-    statTile('<i class="dot b"></i>Ausgaben', money(t.expenses)),
-  ];
+  const tiles = [statTile('<i class="dot"></i>Umsatz', money(t.revenue))];
   if (t.fees) tiles.push(statTile(`<i class="dot c"></i>${FEE_NAME}`, money(t.fees)));
+  tiles.push(statTile('<i class="dot b"></i>Ausgaben', money(t.expenses)));
   tiles.push(statTile('Gewinn', money(t.profit), t.profit < 0 ? 'neg' : ''));
   return `<div class="${t.fees ? 'stats4' : 'stats3'}">${tiles.join('')}</div>`;
 }
@@ -47,7 +45,6 @@ function detailRows(t, { withDeposits = false } = {}) {
     ${row('Verkäufe', String(t.sales), t.lumpSales ? `plus ${t.lumpSales} Messe-Tagessumme${t.lumpSales === 1 ? '' : 'n'}` : '')}
     ${row('Ø pro Verkauf', t.avgSale != null ? money(t.avgSale) : '–', t.lumpSales ? 'ohne Messe-Tagessummen' : '')}
     ${t.items ? row('Verkaufte Tiere/Artikel', String(t.items)) : ''}
-    ${t.feeSpent ? row(`Aus ${FEE_NAME} bezahlt`, money(t.feeSpent), 'zählt nicht noch einmal als Ausgabe') : ''}
     ${row('Privat entnommen', money(t.withdrawals))}
     ${withDeposits ? row('Einlagen', money(t.deposits)) : ''}
   </div>`;
@@ -109,7 +106,6 @@ export function statsView(el, params) {
     const visible = months.filter((m) => m.key <= cmk && firstKey && m.key >= firstKey);
     const top = productRanking((e) => e.date.startsWith(year + '-')).slice(0, 8);
     const all = getTotals();
-    const pot = getFeePot();
 
     if (!store.state.entries.length) {
       el.innerHTML = `<header class="lt"><div><h1>Statistik</h1></div></header>
@@ -135,8 +131,8 @@ export function statsView(el, params) {
             ${statTile('Gewinn', money(head.profit), 'big ' + (head.profit < 0 ? 'neg' : ''))}
             <div class="${head.fees ? 'stats3' : 'stats2'} stats-sub">
               ${statTile('<i class="dot"></i>Umsatz', money(head.revenue))}
-              ${statTile('<i class="dot b"></i>Ausgaben', money(head.expenses))}
               ${head.fees ? statTile(`<i class="dot c"></i>${FEE_NAME}`, money(head.fees)) : ''}
+              ${statTile('<i class="dot b"></i>Ausgaben', money(head.expenses))}
             </div>
             ${monthChart(months.map((m) => ({ key: m.key, revenue: m.revenue, expenses: m.expenses })), sel, { mini: true })}
             <p class="card-note">Säule antippen zeigt die Werte, nochmal antippen öffnet den Monat.</p>
@@ -157,7 +153,7 @@ export function statsView(el, params) {
               </button>`).join('') || '<p class="card-note pad">Keine Daten.</p>'}
             <div class="mt-row mt-foot"><span>Summe</span><span>${money(head.revenue)}</span><span>${money(head.expenses)}</span><span class="${head.profit < 0 ? 'neg' : ''}">${money(head.profit)}</span></div>
           </div>
-          ${head.fees ? `<p class="hint">Gewinn = Umsatz − Ausgaben − ${FEE_NAME} (${money(head.fees)}).</p>` : ''}
+          ${head.fees ? `<p class="hint">Gewinn = Umsatz − ${FEE_NAME} (${money(head.fees)}) − Ausgaben.</p>` : ''}
         </section>
 
         <section class="card">
@@ -174,18 +170,6 @@ export function statsView(el, params) {
           <div class="card-head"><h2>Meistverkauft</h2><span class="muted">${esc(year)}</span></div>
           ${topList(top)}
         </section>
-
-        ${all.fees || pot ? `<section class="sec">
-          <div class="sec-head"><h2>${FEE_NAME}</h2></div>
-          <div class="card pot">
-            ${statTile('Im Topf', money(pot), 'big ' + (pot < 0 ? 'neg' : ''))}
-            <div class="stats2 stats-sub">
-              ${statTile('Angespart', money(all.fees))}
-              ${statTile('Daraus bezahlt', money(all.feeSpent))}
-            </div>
-            <p class="card-note">Von jedem Verkauf geht ein fester Anteil in den Topf. Bei einer Ausgabe kannst du „Aus der ${FEE_NAME} bezahlen“ wählen – sie mindert den Gewinn dann nicht noch einmal.</p>
-          </div>
-        </section>` : ''}
 
         <section class="sec">
           <div class="sec-head"><h2>Seit Beginn</h2></div>

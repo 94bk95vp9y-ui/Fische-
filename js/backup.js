@@ -46,7 +46,7 @@ const csvCell = (v) => {
 const deNum = (cents) => (cents / 100).toFixed(2).replace('.', ',');
 
 export async function exportCsv() {
-  const rows = [['Datum', 'Art', 'Kanal', 'Messe', 'Kategorie', 'Artikel', 'Stück', 'Betrag (EUR)', 'Wirkung Kasse (EUR)', 'Status', 'Notiz', 'Rücklage (EUR)', 'Rücklage (%)', 'Aus Rücklage bezahlt']];
+  const rows = [['Datum', 'Art', 'Kanal', 'Messe', 'Kategorie', 'Artikel', 'Stück', 'Betrag (EUR)', 'Wirkung Kasse (EUR)', 'Status', 'Notiz', 'Abgabe (EUR)', 'Abgabe (%)']];
   for (const e of sortedEntries().reverse()) {
     const ev = e.eventId ? getEvent(e.eventId) : null;
     rows.push([
@@ -63,7 +63,6 @@ export async function exportCsv() {
       e.note || '',
       e.fee ? deNum(e.fee) : '',
       e.fee ? String(e.feeRate).replace('.', ',') : '',
-      e.fromFee ? 'ja' : '',
     ]);
   }
   const csv = '\uFEFF' + rows.map((r) => r.map(csvCell).join(';')).join('\r\n');

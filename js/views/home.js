@@ -1,4 +1,4 @@
-import { store, commit, getBalance, getTotals, getFeePot, sortedEntries, activeEvent } from '../store.js';
+import { store, commit, getBalance, getTotals, sortedEntries, activeEvent } from '../store.js';
 import { money, esc, fmtDateLong, todayISO, isIOS, isStandalone, daysBetween, isoDate } from '../util.js';
 import { icon, FISH_SVG } from '../icons.js';
 import { entryRow, moneyParts } from '../components.js';
@@ -68,7 +68,7 @@ export function homeView(el) {
     const bal = getBalance();
     const today = todayISO();
     const todaySales = s.entries.filter((e) => e.type === 'sale' && e.status !== 'open' && e.date === today);
-    const todaySum = todaySales.reduce((a, e) => a + e.amount, 0);
+    const todaySum = todaySales.reduce((a, e) => a + e.amount - (e.fee || 0), 0); // nach Abgabe
     const open = sortedEntries(s.entries.filter((e) => e.status === 'open'));
     const recent = sortedEntries(s.entries.filter((e) => e.status !== 'open')).slice(0, 5);
     const isNew = !s.products.length && !s.entries.length;
@@ -176,6 +176,7 @@ function openBalanceInfo() {
     content: `
       <div class="group">
         ${row('Umsatz', money(t.revenue, { sign: true }))}
+        ${t.fees ? row(FEE_NAME, money(-t.fees)) : ''}
         ${row('Ausgaben', money(-t.expenses))}
         ${row('Privatentnahmen', money(-t.withdrawals))}
         ${row('Einlagen', money(t.deposits, { sign: true }))}
@@ -183,9 +184,7 @@ function openBalanceInfo() {
         ${row('Kassenstand', money(bal), 'total')}
       </div>
       <div class="group">
-        ${t.fees ? row(`${FEE_NAME} (angespart)`, money(-t.fees)) : ''}
-        ${row(t.fees ? `Gewinn (Umsatz − Ausgaben − ${FEE_NAME})` : 'Gewinn (Umsatz − Ausgaben)', money(t.profit))}
-        ${t.fees ? row(`${FEE_NAME}: noch im Topf`, money(getFeePot())) : ''}
+        ${row(t.fees ? `Gewinn (Umsatz − ${FEE_NAME} − Ausgaben)` : 'Gewinn (Umsatz − Ausgaben)', money(t.profit))}
       </div>
       <p class="hint">Der <strong>Kassenstand</strong> ist das Geld aus dem Verkauf, das gerade da sein sollte – bar und auf dem Konto zusammen. <strong>Entnahmen</strong> und <strong>Einlagen</strong> verändern nur den Kassenstand, nicht den Gewinn. Reservierte Verkäufe zählen erst, wenn sie bezahlt sind.</p>
       <button type="button" class="btn block" data-act="adjust">${icon('scale')}Mit echtem Geld abgleichen</button>`,
